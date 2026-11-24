@@ -23,8 +23,8 @@ function Find-Browser {
 # Opens the dashboard in its own window (no tabs, no address bar), like a normal app.
 function Open-App($url) {
   $b = Find-Browser
-  if ($b) { Start-Process $b -ArgumentList "--app=$url", "--user-data-dir=`"$data\window`"", "--window-size=1280,860"; return }
-  Start-Process $url
+  if ($b) { return (Start-Process $b -PassThru -ArgumentList "--app=$url", "--user-data-dir=`"$data\window`"", "--window-size=1280,860") }
+  Start-Process $url; return $null
 }
 function Alive($url) {
   try { $r = Invoke-RestMethod -Uri "$url/api/ping" -TimeoutSec 2; return $r.app -eq "server-assistant" } catch { return $false }
@@ -42,7 +42,23 @@ foreach ($h in @("$name.local", $name)) {
 }
 
 # 2. Away from home: go through the private network.
-if (Alive "http://127.0.0.1:8766") { Open-App "http://127.0.0.1:8766"; exit 0 }
+function Show-Msg($t) { Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show($t, "Server Assistant Viewer") }
+# Opens the window and, when it is closed, stops the helper so nothing is left running in the background.
+function Open-AndWait($url) {
+  $w = Open-App $url
+  if ($w) {
+    $t0 = Get-Date
+    try { $w.WaitForExit() } catch {}
+    if (((Get-Date) - $t0).TotalSeconds -lt 5) { return }  # the browser handed the window to another process: leave the helper running
+  }
+  Get-Process -Name satailnet | Where-Object { $_.Path -eq $exe } | Stop-Process -Force
+}
+# Connected to Tailscale: check that the server really answers before opening the window.
+function Wait-Server {
+  for ($i = 0; $i -lt 15; $i++) { if (Alive "http://127.0.0.1:8766") { return $true }; Start-Sleep -Seconds 1 }
+  return $false
+}
+if (Alive "http://127.0.0.1:8766") { Open-AndWait "http://127.0.0.1:8766"; exit 0 }
 if (-not (Test-Path $exe)) {
   try { Invoke-WebRequest -Uri $helperUrl -OutFile $exe -UseBasicParsing }
   catch { Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show("Could not download the connection helper. Check your internet and try again."); exit 1 }
@@ -65,7 +81,12 @@ for ($i = 0; $i -lt 600; $i++) {
   foreach ($line in (Get-Content $log -ErrorAction SilentlyContinue)) {
     try { $m = $line | ConvertFrom-Json } catch { continue }
     if ($m.state -eq "login" -and -not $opened) { $opened = $true; Start-Process $m.url }
-    if ($m.state -eq "up") { Open-App "http://127.0.0.1:8766"; exit 0 }
-    if ($m.state -eq "error") { Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show("Could not connect: " + $m.error); exit 1 }
+    if ($m.state -eq "up") {
+      if (Wait-Server) { Open-AndWait "http://127.0.0.1:8766"; exit 0 }
+      Get-Process -Name satailnet | Where-Object { $_.Path -eq $exe } | Stop-Process -Force
+      Show-Msg "Connected to Tailscale, but the server did not answer.`n`nMake sure Server Assistant is running on the server PC (its icon is in the tray by the clock) and that Tailscale is connected there too, then try again."
+      exit 1
+    }
+    if ($m.state -eq "error") { Show-Msg ("Could not connect: " + $m.error); exit 1 }
   }
 }

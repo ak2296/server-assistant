@@ -7,11 +7,23 @@ $exe = Join-Path $data "satailnet.exe"
 $helperUrl = "https://github.com/ak2296/server-assistant/releases/download/helper-latest/satailnet.exe"
 New-Item -ItemType Directory -Force -Path $data | Out-Null
 
-function Open-App($url) {
-  foreach ($b in @("msedge", "chrome")) {
-    $p = (Get-Command $b -ErrorAction SilentlyContinue)
-    if ($p) { Start-Process $p.Source -ArgumentList "--app=$url"; return }
+function Find-Browser {
+  $c = @(
+    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe")
+  foreach ($k in @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe", "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe",
+                   "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe")) {
+    $v = (Get-ItemProperty $k -ErrorAction SilentlyContinue).'(default)'
+    if ($v) { $c = @($v) + $c }
   }
+  foreach ($p in $c) { if ($p -and (Test-Path $p)) { return $p } }
+  return $null
+}
+# Opens the dashboard in its own window (no tabs, no address bar), like a normal app.
+function Open-App($url) {
+  $b = Find-Browser
+  if ($b) { Start-Process $b -ArgumentList "--app=$url", "--user-data-dir=`"$data\window`"", "--window-size=1280,860"; return }
   Start-Process $url
 }
 function Alive($url) {

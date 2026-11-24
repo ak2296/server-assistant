@@ -156,7 +156,7 @@ class BuiltinClient:
             if link.lower().startswith("magnet:"):
                 todo.append({"music": music, "link": link, "file": None, "save": save})
             else:  # http(s) link to a .torrent file
-                r = requests.get(link, timeout=30, headers={"User-Agent": "ServerAssistant/1.0"})
+                r = requests.get(link, timeout=15, headers={"User-Agent": "ServerAssistant/1.0"})
                 r.raise_for_status()
                 todo.append(self._store_file(r.content, music, save))
         for _name, content in files or []:

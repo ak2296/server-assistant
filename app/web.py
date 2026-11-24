@@ -734,8 +734,8 @@ async def add_download(links: str = Form(""), music: bool = Form(True), mbid: st
     uploads = [(f.filename or "file.torrent", await f.read()) for f in (files or []) if f.filename]
     if not link_list and not uploads:
         raise HTTPException(400, "Paste a link or choose a .torrent file")
-    try:
-        state.qbit.add(link_list, uploads, music=music)
+    try:  # in a worker thread: fetching a .torrent link can take a while and must not freeze the dashboard
+        await asyncio.get_running_loop().run_in_executor(None, lambda: state.qbit.add(link_list, uploads, music=music))
     except Exception as e:
         raise HTTPException(502, str(e)[:200])
     if mbid:

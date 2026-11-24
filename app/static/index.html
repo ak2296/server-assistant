@@ -429,9 +429,11 @@ async function submitAdd(ev, mbid) {
   const fd = new FormData(ev.target);
   if (mbid) fd.append("mbid", mbid);
   if (!fd.get("links").trim() && !fd.getAll("files").some(f => f.size)) { toast("Paste a link or choose a .torrent file"); return; }
-  const b = ev.target.querySelector("button[type=submit]"); b.disabled = true;
-  try { await api("/api/downloads", {method:"POST", body:fd}); toast("Download started"); openAdd = null; ev.target.reset(); render(); }
-  catch (e) { toast(e.message); b.disabled = false; }
+  const b = ev.target.querySelector("button[type=submit]"), label = b.textContent; b.disabled = true; b.textContent = "Adding…";
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 45000);  // never stay stuck: give up after 45 s
+  try { await api("/api/downloads", {method:"POST", body:fd, signal:ctl.signal}); toast("Download started"); openAdd = null; ev.target.reset(); render(); }
+  catch (e) { toast(e.name === "AbortError" ? "The server didn't answer in time. Check the Downloads list before trying again." : e.message); b.disabled = false; b.textContent = label; }
+  finally { clearTimeout(timer); }
 }
 function releaseCard(r) {
   const cover = r.cover || `https://coverartarchive.org/release-group/${r.mbid}/front-250`;

@@ -70,14 +70,111 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private Intent pendingIntent;
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private boolean awayActive;          // true while the dashboard is reached through the private network
+    private Tailnet tailnet;
+    private boolean loginOpened;
+    private TextView connStatus;
+    private Button connLogin;
+    private String loginUrl;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         prefs = getSharedPreferences("settings", MODE_PRIVATE);
         pendingIntent = getIntent();
-        if (server() == null) showSetup(null);
-        else showDashboard("");
+        startApp();
+    }
+
+    /** Home first; if the home server doesn't answer and away-from-home is set up, go through the private network. */
+    private void startApp() {
+        boolean away = prefs.getBoolean("away", false);
+        if (server() == null && !away) { showSetup(null); return; }
+        if (server() == null) { connectAway(); return; }
+        if (!away) { showDashboard(""); return; }
+        showConnecting("Looking for your server…");
+        new Thread(new Runnable() {
+            public void run() {
+                final boolean home = Net.isServer(server(), 2500);
+                ui.post(new Runnable() {
+                    public void run() { if (home) { awayActive = false; showDashboard(""); } else connectAway(); }
+                });
+            }
+        }).start();
+    }
+
+    /** Address the dashboard is loaded from right now. */
+    private String base() {
+        return awayActive ? Tailnet.LOCAL : server();
+    }
+
+    private void showConnecting(String message) {
+        if (web != null) { web.destroy(); web = null; }
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setBackgroundColor(BG);
+        box.setPadding(dp(32), dp(32), dp(32), dp(32));
+        box.addView(new ProgressBar(this));
+        connStatus = text(message, 16, TEXT);
+        connStatus.setGravity(Gravity.CENTER);
+        connStatus.setPadding(0, dp(16), 0, dp(16));
+        box.addView(connStatus);
+        connLogin = button("Sign in to Tailscale", true);
+        connLogin.setVisibility(View.GONE);
+        connLogin.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { openLogin(); }
+        });
+        box.addView(connLogin, matchWrap());
+        setContentView(box);
+    }
+
+    private void openLogin() {
+        if (loginUrl == null) return;
+        try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(loginUrl))); } catch (Exception ignored) { }
+    }
+
+    /** Away from home: start the built-in private-network helper, then open the dashboard through it. */
+    private void connectAway() {
+        if (!Tailnet.available(this)) {
+            showSetup("This phone can't run the away-from-home connection (it needs a 64-bit phone and the latest app).");
+            return;
+        }
+        showConnecting("Connecting through your private network…");
+        if (tailnet != null) tailnet.stop();
+        loginOpened = false;
+        tailnet = new Tailnet(this, new Tailnet.Listener() {
+            public void onLogin(final String url) {
+                ui.post(new Runnable() {
+                    public void run() {
+                        loginUrl = url;
+                        if (connStatus != null) connStatus.setText("Sign in to Tailscale once, with the same account as the server. Then come back to this app.");
+                        if (connLogin != null) connLogin.setVisibility(View.VISIBLE);
+                        if (!loginOpened) { loginOpened = true; openLogin(); }
+                    }
+                });
+            }
+            public void onUp() {
+                ui.post(new Runnable() {
+                    public void run() {
+                        prefs.edit().putBoolean("away", true).apply();
+                        awayActive = true;
+                        showDashboard("");
+                    }
+                });
+            }
+            public void onError(final String message) {
+                ui.post(new Runnable() {
+                    public void run() { showOffline(message); }
+                });
+            }
+        });
+        tailnet.start();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (tailnet != null) tailnet.stop();
+        super.onDestroy();
     }
 
     @Override
@@ -85,7 +182,7 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         pendingIntent = intent;
-        if (server() != null) handleIncoming();
+        if (base() != null && web != null) handleIncoming();
     }
 
     private String server() {
@@ -157,6 +254,13 @@ public class MainActivity extends Activity {
             public void onClick(View v) { discover(status, found, spin); }
         });
         box.addView(find, matchWrap());
+        if (Tailnet.available(this)) {
+            Button away = button("Away from home (Tailscale)", false);
+            away.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) { connectAway(); }
+            });
+            box.addView(away, matchWrap());
+        }
         box.addView(spin);
         box.addView(found);
 
@@ -188,6 +292,7 @@ public class MainActivity extends Activity {
 
     private void useServer(String url) {
         prefs.edit().putString("server", url).apply();
+        awayActive = false;
         showDashboard("");
     }
 
@@ -283,13 +388,13 @@ public class MainActivity extends Activity {
 
             @Override
             public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError err) {
-                if (req.isForMainFrame()) showOffline();
+                if (req.isForMainFrame()) showOffline(null);
             }
 
             @Override
             @SuppressWarnings("deprecation")
             public void onReceivedError(WebView view, int code, String desc, String url) {
-                if (url != null && url.startsWith(server())) showOffline();
+                if (url != null && base() != null && url.startsWith(base())) showOffline(null);
             }
         });
 
@@ -313,12 +418,12 @@ public class MainActivity extends Activity {
         });
 
         setContentView(web);
-        web.loadUrl(server() + "/" + (hash.isEmpty() ? "" : "#" + hash));
+        web.loadUrl(base() + "/" + (hash.isEmpty() ? "" : "#" + hash));
         handleIncoming();
     }
 
     private boolean openOutside(Uri uri) {
-        String base = server();
+        String base = base();
         if (base != null && uri.toString().startsWith(base)) return false;  // stay inside the app
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, uri));
@@ -326,7 +431,7 @@ public class MainActivity extends Activity {
         return true;
     }
 
-    private void showOffline() {
+    private void showOffline(String reason) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER);
@@ -336,15 +441,24 @@ public class MainActivity extends Activity {
         t.setTypeface(Typeface.DEFAULT_BOLD);
         t.setGravity(Gravity.CENTER);
         box.addView(t);
-        TextView d = text("Make sure the server PC is on, start.bat is running, and your phone is on the home Wi-Fi.\n\n" + server(), 14, MUTED);
+        TextView d = text(reason != null ? reason
+                : awayActive ? "Make sure the server PC is on and that Tailscale is connected on it too."
+                : "Make sure the server PC is on, Server Assistant is running, and your phone is on the home Wi-Fi.\n\n" + server(), 14, MUTED);
         d.setGravity(Gravity.CENTER);
         d.setPadding(0, dp(10), 0, dp(24));
         box.addView(d);
         Button retry = button("Try again", true);
         retry.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { showDashboard(""); }
+            public void onClick(View v) { if (awayActive) showDashboard(""); else startApp(); }
         });
         box.addView(retry, matchWrap());
+        if (!awayActive && Tailnet.available(this)) {
+            Button away = button("Connect away from home", false);
+            away.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) { connectAway(); }
+            });
+            box.addView(away, matchWrap());
+        }
         Button change = button("Change server", false);
         change.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { showSetup(null); }
@@ -397,7 +511,7 @@ public class MainActivity extends Activity {
     private void handleIncoming() {
         Intent intent = pendingIntent;
         pendingIntent = null;
-        if (intent == null || server() == null) return;
+        if (intent == null || base() == null) return;
         String action = intent.getAction();
         String magnet = null;
         Uri file = null;
@@ -481,7 +595,7 @@ public class MainActivity extends Activity {
                         name = fileName(file);
                         if (!name.toLowerCase().endsWith(".torrent")) name = name + ".torrent";
                     }
-                    error = Net.postDownload(server(), link, name, content, music);
+                    error = Net.postDownload(base(), link, name, content, music);
                 } catch (Exception e) {
                     error = "Couldn't send: " + e.getMessage();
                 }
@@ -490,7 +604,7 @@ public class MainActivity extends Activity {
                     public void run() {
                         if (err == null) {
                             toast("Download started");
-                            if (web != null) web.loadUrl(server() + "/#downloads");
+                            if (web != null) web.loadUrl(base() + "/#downloads");
                             else showDashboard("downloads");
                         } else {
                             toast(err);

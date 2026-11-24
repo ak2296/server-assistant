@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"time"
 
 	"tailscale.com/ipn"
@@ -43,6 +44,14 @@ func main() {
 	remote := flag.String("remote", "serverassistant", "connect: name of the server node")
 	listen := flag.String("listen", "127.0.0.1:8766", "connect: local address to open")
 	flag.Parse()
+
+	// On Android there is no /etc/resolv.conf: give Go's resolver a public DNS server to fall back on.
+	if _, err := os.Stat("/etc/resolv.conf"); err != nil && runtime.GOOS != "windows" {
+		net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 5 * time.Second}
+			return d.DialContext(ctx, "udp", "1.1.1.1:53")
+		}}
+	}
 
 	s := &tsnet.Server{Hostname: *host, Dir: *dir, AuthKey: os.Getenv("TS_AUTHKEY"), Logf: func(string, ...any) {}}
 	defer s.Close()

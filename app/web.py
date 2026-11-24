@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, releases, sorter, subsources, subtitles, system, torrent, unseen
@@ -267,9 +267,21 @@ def finder(request: Request):
                     headers={"Content-Disposition": 'attachment; filename="Open Server Assistant.html"'})
 
 
+_APK = {"at": 0.0, "ok": False}
+
+
 @app.get("/app.apk")
 def android_app():
     """Open http://<server>:8765/app.apk on the phone to install the Android app."""
+    url = f"https://github.com/{state.cfg['updates']['repo']}/releases/download/{state.cfg['updates']['tag']}/ServerAssistant.apk"
+    if time.time() - _APK["at"] > 600:  # is the newest app on GitHub? (checked at most every 10 minutes)
+        try:
+            _APK["ok"] = requests.head(url, allow_redirects=True, timeout=5).status_code == 200
+        except Exception:
+            _APK["ok"] = False
+        _APK["at"] = time.time()
+    if _APK["ok"]:
+        return RedirectResponse(url)
     apk = STATIC / "ServerAssistant.apk"
     if not apk.exists():
         raise HTTPException(404, "APK not included")

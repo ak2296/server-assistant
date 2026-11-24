@@ -16,6 +16,14 @@ rm -rf build && mkdir -p build/gen build/classes build/dex
 javac -source 8 -target 8 -Xlint:-options -bootclasspath "$JAR" -classpath "$JAR" -d build/classes $(find src build/gen -name '*.java')
 "$BT/d8" --min-api 21 --lib "$JAR" --output build/dex $(find build/classes -name '*.class')
 (cd build/dex && "$BT/aapt" add ../unsigned.apk classes.dex >/dev/null)
+# the private-network helper (a static 64-bit ARM program) rides inside the app as a native library
+if [ -n "${HELPER:-}" ] && [ -f "$HELPER" ]; then
+  mkdir -p build/pkg/lib/arm64-v8a && cp "$HELPER" build/pkg/lib/arm64-v8a/libsatailnet.so
+  (cd build/pkg && "$BT/aapt" add ../unsigned.apk lib/arm64-v8a/libsatailnet.so >/dev/null)
+  echo "Added the helper ($(du -h "$HELPER" | cut -f1))"
+else
+  echo "No HELPER given: the app is built without the away-from-home connection"
+fi
 "$BT/zipalign" -f 4 build/unsigned.apk build/aligned.apk
 KS="${KEYSTORE:-}"
 if [ -z "$KS" ] || [ ! -f "$KS" ]; then

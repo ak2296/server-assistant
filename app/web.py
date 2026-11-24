@@ -2,6 +2,7 @@
 import logging
 import os
 import re
+import requests
 import sys
 import threading
 import time
@@ -182,7 +183,7 @@ def _plex_library_loop(st: State):
 async def lifespan(app: FastAPI):
     global state
     state = State()
-    for fn in (_release_loop, _subs_loop, _sorter_loop, _plex_library_loop):
+    for fn in (_release_loop, _subs_loop, _sorter_loop, _plex_library_loop, _auto_update_loop):
         threading.Thread(target=fn, args=(state,), daemon=True).start()
     threading.Thread(target=state.monitor.run_forever, args=(state.stop,), daemon=True).start()
     threading.Thread(target=discovery.advertise, args=(int(state.cfg["server"]["port"]),), daemon=True).start()
@@ -622,6 +623,7 @@ def get_settings():
                   "download_folders": m["download_folders"], "lookback_days": m["lookback_days"],
                   "release_types": m["release_types"], "album_folder_format": m["album_folder_format"],
                   "sources": m["sources"], "catalog_gaps": bool(m.get("catalog_gaps"))},
+        "updates": {"auto": bool(c["updates"].get("auto")), "repo": c["updates"].get("repo", "")},
         "tailnet": {k: c["tailnet"].get(k, "") for k in ("enabled", "mode", "name", "authkey", "helper_url")},
         "backup": {"enabled": bool(c["backup"].get("enabled")), "folder": c["backup"].get("folder", ""),
                    "keep": c["backup"].get("keep", 2), "every_days": c["backup"].get("every_days", 7)},
@@ -644,6 +646,7 @@ class SettingsBody(BaseModel):
     qbittorrent: dict
     backup: dict = {}
     tailnet: dict = {}
+    updates: dict = {}
     plex: dict
     system: dict
 
@@ -679,6 +682,8 @@ def save_settings(body: SettingsBody):
     m["lookback_days"] = int(body.music.get("lookback_days") or 120)
     m["release_types"] = [t for t in body.music.get("release_types", []) if t in ("Album", "Single", "EP")] or ["Album"]
     m["catalog_gaps"] = bool(body.music.get("catalog_gaps"))
+    ud = body.updates or {}
+    c["updates"] = {**c["updates"], "auto": bool(ud.get("auto")), "repo": (ud.get("repo") or c["updates"]["repo"]).strip()}
     tn = body.tailnet or {}
     c["tailnet"] = {"enabled": bool(tn.get("enabled")), "mode": "connect" if tn.get("mode") == "connect" else "serve",
                     "name": (tn.get("name") or "serverassistant").strip().lower(), "authkey": (tn.get("authkey") or "").strip(),
@@ -776,10 +781,8 @@ def version_info():
             "program_folder": str(ROOT)}
 
 
-@app.post("/api/update")
-async def update_program(file: UploadFile = File(...)):
-    """Replace the program files with a newer version (a ServerAssistant .zip). Settings and history are kept."""
-    raw = await file.read()
+def _apply_update(raw: bytes) -> dict:
+    """Replace the program files from a ServerAssistant .zip, then restart. Settings and history are kept."""
     try:
         z = zipfile.ZipFile(io.BytesIO(raw))
     except zipfile.BadZipFile:
@@ -818,6 +821,80 @@ async def update_program(file: UploadFile = File(...)):
     log.info("Updated to %s (%d files); restarting", new_version, written)
     _exit_later(3)
     return {"ok": True, "version": new_version, "files": written}
+
+
+
+
+@app.post("/api/update")
+async def update_program(file: UploadFile = File(...)):
+    return _apply_update(await file.read())
+
+
+def _vtuple(v: str) -> tuple:
+    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:4]) or (0,)
+
+
+def latest_release(cfg: dict) -> dict:
+    """What the GitHub release says is the newest version, and where to download it."""
+    u = cfg["updates"]
+    r = requests.get(f"https://api.github.com/repos/{u['repo']}/releases/tags/{u['tag']}", timeout=15,
+                     headers={"Accept": "application/vnd.github+json"})
+    r.raise_for_status()
+    j = r.json()
+    asset = next((a for a in j.get("assets", []) if a["name"].endswith(".zip")), None)
+    version = (j.get("name") or j.get("tag_name") or "").lstrip("v ")
+    return {"version": version, "url": asset["browser_download_url"] if asset else "", "published": j.get("published_at", "")}
+
+
+def _busy_downloading() -> bool:
+    try:
+        return any(t.get("progress", 1) < 1 for t in state.qbit.torrents())
+    except Exception:
+        return False
+
+
+def _install_latest(cfg: dict) -> dict:
+    info = latest_release(cfg)
+    if not info["url"] or _vtuple(info["version"]) <= _vtuple(VERSION):
+        return {"updated": False, "latest": info["version"]}
+    raw = requests.get(info["url"], timeout=120).content
+    r = _apply_update(raw)
+    return {"updated": True, "latest": info["version"], **r}
+
+
+@app.get("/api/updates/check")
+def updates_check():
+    try:
+        info = latest_release(state.cfg)
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't reach GitHub: {str(e)[:120]}")
+    return {**info, "current": VERSION, "available": _vtuple(info["version"]) > _vtuple(VERSION),
+            "auto": bool(state.cfg["updates"].get("auto"))}
+
+
+@app.post("/api/updates/install")
+def updates_install():
+    try:
+        return _install_latest(state.cfg)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Update failed: {str(e)[:150]}")
+
+
+def _auto_update_loop(st: State):
+    """When you push a new version to GitHub, the server picks it up by itself."""
+    st.stop.wait(90)
+    while not st.stop.is_set():
+        u = st.cfg["updates"]
+        if u.get("auto") and not _busy_downloading():
+            try:
+                r = _install_latest(st.cfg)
+                if r.get("updated"):
+                    return  # the program restarts
+            except Exception as e:
+                log.info("Update check failed: %s", e)
+        st.stop.wait(max(5, int(u.get("every_minutes", 30))) * 60)
 
 
 @app.get("/api/control")

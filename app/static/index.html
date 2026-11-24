@@ -497,6 +497,10 @@ async function renderSettings() {
   <div style="padding:14px 0 6px"><button class="primary" type="submit" style="width:100%">Save settings</button></div></form>
   <div class="card" style="margin-top:10px"><div class="title" style="font-size:15px">Update</div>
     <div class="hint" id="verLine" style="margin:4px 0 10px">Checking version…</div>
+    <label class="check"><input type="checkbox" id="updAuto" ${S.updates.auto ? "checked" : ""}>Update automatically when a new version is on GitHub</label>
+    <div class="hint" id="updInfo">Press Check to see the newest version.</div>
+    <div class="actions"><button class="small" type="button" onclick="checkUpdates()">Check for updates</button><button class="small primary" type="button" id="updInstall" hidden onclick="installUpdates()">Install now</button></div>
+    <div class="hint" style="margin-top:10px">Or install from a file:</div>
     <div class="actions"><input type="file" id="updFile" accept=".zip"><button class="small primary" type="button" onclick="doUpdate()">Update now</button></div>
     <div class="hint">Choose the newer ServerAssistant .zip. The program files are replaced and it restarts by itself. Your settings, history and subtitle sources are kept.</div></div>
   <div class="card" style="margin-top:10px"><div class="title" style="font-size:15px">Server program</div>
@@ -526,6 +530,17 @@ async function backupNow() {
   try { const r = await api("/api/backup/run", {method:"POST"}); toast(`Backup done: ${bytes(r.size)}`); const b = await api("/api/backup"); const e = $("#bkInfo"); if (e) e.innerHTML = `Last: ${esc(b.last)} (${bytes(b.last_size)}), ${b.copies} kept.`; }
   catch (e) { toast(e.message); }
 }
+async function checkUpdates() {
+  const e = $("#updInfo"); e.textContent = "Checking GitHub…";
+  try { const u = await api("/api/updates/check"); e.innerHTML = u.available ? `Version <b>${esc(u.version)}</b> is available (you have ${esc(u.current)}).` : `You are up to date (${esc(u.current)}).`; $("#updInstall").hidden = !u.available; }
+  catch (x) { e.innerHTML = `<span class="fail">${esc(x.message)}</span>`; }
+}
+async function installUpdates() {
+  toast("Updating…");
+  try { const r = await api("/api/updates/install", {method:"POST"}); if (!r.updated) { toast("Already up to date"); return; } toast(`Updated to ${r.version}. Restarting…`); }
+  catch (x) { toast(x.message); return; }
+  for (let i = 0; i < 60; i++) { await new Promise(r => setTimeout(r, 1500)); try { const r = await fetch("/api/ping", {cache:"no-store"}); if (r.ok && i > 1) { location.reload(); return; } } catch (x) {} }
+}
 async function doUpdate() {
   const f = $("#updFile").files[0];
   if (!f) { toast("Choose the update .zip first."); return; }
@@ -550,6 +565,7 @@ async function saveSettings(ev) {
     movies: { mode: mode("movies"), custom: val("moviesFolders").value },
     subtitles: { enabled: val("sEnabled").checked, languages: val("sLang").value },
     qbittorrent: { engine: document.querySelector("input[name=qEngine]:checked").value, enabled: val("qEnabled").checked, url: val("qUrl").value, username: val("qUser").value, password: val("qPass").value, save_path: val("qSave").value, upload_limit_kb: val("qUp").value },
+    updates: { auto: val("updAuto").checked },
     tailnet: { enabled: val("tnOn").checked, mode: document.querySelector("input[name=tnMode]:checked").value, name: val("tnName").value, authkey: val("tnKey").value, helper_url: val("tnUrl").value },
     backup: { enabled: val("bkOn").checked, folder: val("bkFolder").value, keep: val("bkKeep").value, every_days: 7 },
     plex: { url: val("pUrl").value, token: val("pToken").value },

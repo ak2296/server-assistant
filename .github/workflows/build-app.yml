@@ -1,0 +1,28 @@
+name: Publish app update
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["app/**", "run.py", "tray.py", "appwindow.py", "requirements*.txt", "config.example.toml", "README.md", "VERSION"]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the update zip
+        run: |
+          VER=$(cat VERSION | tr -d '[:space:]')
+          mkdir -p ServerAssistant
+          cp -r app run.py tray.py appwindow.py requirements.txt requirements-optional.txt config.example.toml README.md VERSION ServerAssistant/
+          find ServerAssistant -name __pycache__ -prune -exec rm -rf {} +
+          zip -qr ServerAssistant.zip ServerAssistant
+          echo "VER=$VER" >> "$GITHUB_ENV"
+      - name: Publish as the newest version
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-latest
+          name: v${{ env.VER }}
+          make_latest: false
+          files: ServerAssistant.zip

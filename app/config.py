@@ -42,6 +42,11 @@ def load_config(path: str | Path | None = None) -> dict:
     subs.setdefault("check_every_hours", 6)
     subs.setdefault("max_downloads_per_run", 15)
 
+    up = cfg.setdefault("updates", {})
+    up.setdefault("auto", True)
+    up.setdefault("repo", "ak2296/server-assistant")
+    up.setdefault("tag", "app-latest")
+    up.setdefault("every_minutes", 30)
     t = cfg.setdefault("tailnet", {})
     t.setdefault("enabled", False)
     t.setdefault("mode", "serve")          # serve = this is the server PC; connect = another PC
@@ -76,7 +81,7 @@ def load_config(path: str | Path | None = None) -> dict:
 
 # ---------------------------------------------------------------- saving
 
-SECTION_ORDER = ["server", "music", "qbittorrent", "plex", "system", "subtitles", "backup", "tailnet"]
+SECTION_ORDER = ["server", "music", "qbittorrent", "plex", "system", "subtitles", "backup", "tailnet", "updates"]
 RUNTIME_KEYS = {"roots"}  # filled in while running, never saved
 
 

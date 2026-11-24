@@ -39,10 +39,15 @@ def _quality(media: dict) -> str:
     return f"{codec} {bitrate} kbps" if codec and bitrate else codec
 
 
+def _norm_path(p: str) -> str:
+    return p.replace("\\", "/").rstrip("/").lower()
+
+
 class Plex:
     def __init__(self, cfg: dict):
         p = cfg["plex"]
         self.url = p["url"].rstrip("/")
+        self.exclude = {"artist": set(), "movie": set()}  # folders the user left out (set by the server)
         self.token = p.get("token") or find_local_token()
         self.s = requests.Session()
         self.s.headers.update({
@@ -186,6 +191,12 @@ class Plex:
         return [{"title": a.get("title"), "subtitle": a.get("subtitle"), "progress": a.get("progress"), "type": a.get("type")}
                 for a in self.get("/activities").get("Activity", [])]
 
+    def _left_out(self, d: dict) -> bool:
+        """True when every folder of this library was unticked in Settings."""
+        paths = [_norm_path(l.get("path", "")) for l in d.get("Location", []) if l.get("path")]
+        ex = self.exclude.get(d.get("type"), set())
+        return bool(paths) and all(p in ex for p in paths)
+
     def folders(self) -> dict:
         """Folders Plex uses for each kind of library: {"artist": [...], "movie": [...], "show": [...]}."""
         out = {"artist": [], "movie": [], "show": []}
@@ -223,7 +234,7 @@ class Plex:
         from . import library
         out: dict[str, set[str]] = {}
         for d in self.get("/library/sections").get("Directory", []):
-            if d.get("type") != "artist":
+            if d.get("type") != "artist" or self._left_out(d):
                 continue
             for a in self.get(f"/library/sections/{d['key']}/albums").get("Metadata", []):
                 artist = library.normalize(a.get("parentTitle") or "")
@@ -236,7 +247,7 @@ class Plex:
         """Every movie with the subtitle languages Plex sees (embedded and sidecar files)."""
         movies = []
         for d in self.get("/library/sections").get("Directory", []):
-            if d.get("type") == "movie":
+            if d.get("type") == "movie" and not self._left_out(d):
                 movies += self.get(f"/library/sections/{d['key']}/all").get("Metadata", [])
         out = []
         for i, m in enumerate(movies, 1):

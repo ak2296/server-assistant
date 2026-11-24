@@ -69,8 +69,12 @@ class State:
                 return list(plex_list)
             return [setting] if isinstance(setting, str) else list(setting)
 
-        self.cfg["music"]["roots"] = pick(self.cfg["music"]["library"], self.plex_folders["artist"])
-        self.cfg["subtitles"]["roots"] = pick(self.cfg["subtitles"]["movie_folders"], self.plex_folders["movie"])
+        norm = lambda p: str(p).replace("\\", "/").rstrip("/").lower()
+        ex_m = {norm(x) for x in self.cfg["music"].get("exclude", [])}
+        ex_v = {norm(x) for x in self.cfg["subtitles"].get("exclude", [])}
+        self.plex.exclude = {"artist": ex_m, "movie": ex_v}
+        self.cfg["music"]["roots"] = [r for r in pick(self.cfg["music"]["library"], self.plex_folders["artist"]) if norm(r) not in ex_m]
+        self.cfg["subtitles"]["roots"] = [r for r in pick(self.cfg["subtitles"]["movie_folders"], self.plex_folders["movie"]) if norm(r) not in ex_v]
         self.paths_at = time.time()
 
     def make_downloader(self):
@@ -598,7 +602,8 @@ def server_overview():
         state.details_busy = True
         threading.Thread(target=_refresh_details, daemon=True).start()
     details = state.plex_details if overview.get("online") else {}
-    return {"system": state.monitor.snapshot(), "plex": {**overview, **details}}
+    return {"system": state.monitor.snapshot(), "plex": {**overview, **details},
+            "app": {"version": VERSION, "uptime": time.time() - STARTED, "update": UPDATE_INFO, "auto": bool(state.cfg["updates"].get("auto"))}}
 
 
 @app.get("/api/plex/thumb")
@@ -653,7 +658,7 @@ def get_settings():
     return {
         "plex_folders": state.plex_folders,
         "plex_connected": state.plex.configured,
-        "music": {"mode": _folder_mode(m["library"]), "custom": _as_list(m["library"]), "in_use": m["roots"],
+        "music": {"exclude": m.get("exclude", []), "mode": _folder_mode(m["library"]), "custom": _as_list(m["library"]), "in_use": m["roots"],
                   "download_folders": m["download_folders"], "lookback_days": m["lookback_days"],
                   "release_types": m["release_types"], "album_folder_format": m["album_folder_format"],
                   "sources": m["sources"], "catalog_gaps": bool(m.get("catalog_gaps"))},
@@ -661,7 +666,7 @@ def get_settings():
         "tailnet": {k: c["tailnet"].get(k, "") for k in ("enabled", "mode", "name", "authkey", "helper_url")},
         "backup": {"enabled": bool(c["backup"].get("enabled")), "folder": c["backup"].get("folder", ""),
                    "keep": c["backup"].get("keep", 2), "every_days": c["backup"].get("every_days", 7)},
-        "movies": {"mode": _folder_mode(sub["movie_folders"]), "custom": _as_list(sub["movie_folders"]), "in_use": sub["roots"]},
+        "movies": {"exclude": sub.get("exclude", []), "mode": _folder_mode(sub["movie_folders"]), "custom": _as_list(sub["movie_folders"]), "in_use": sub["roots"]},
         "subtitles": {"enabled": bool(sub.get("enabled")), "languages": sub["languages"],
                       "api_key": SECRET if sub.get("api_key") else "", "username": sub.get("username", ""),
                       "password": SECRET if sub.get("password") else ""},
@@ -713,6 +718,8 @@ def save_settings(body: SettingsBody):
 
     m["library"] = "auto" if body.music.get("mode") != "custom" else music_custom
     m["download_folders"] = downloads
+    m["exclude"] = _clean_list(body.music.get("exclude"))
+    sub["exclude"] = _clean_list(body.movies.get("exclude"))
     m["lookback_days"] = int(body.music.get("lookback_days") or 120)
     m["release_types"] = [t for t in body.music.get("release_types", []) if t in ("Album", "Single", "EP")] or ["Album"]
     m["catalog_gaps"] = bool(body.music.get("catalog_gaps"))
@@ -812,7 +819,7 @@ def _file_hash(p: Path) -> str:
 @app.get("/api/version")
 def version_info():
     return {"version": VERSION, "installed": (ROOT / "installed.flag").exists(), "data_folder": str(DATA),
-            "program_folder": str(ROOT)}
+            "program_folder": str(ROOT), "update": UPDATE_INFO, "auto": bool(state.cfg["updates"].get("auto"))}
 
 
 def _apply_update(raw: bytes) -> dict:
@@ -885,14 +892,24 @@ def _busy_downloading() -> bool:
         return False
 
 
+UPDATE_INFO = {"at": "", "result": "", "error": ""}
+STARTED = time.time()
+
+
+def _note_update(result: str = "", error: str = ""):
+    UPDATE_INFO.update(at=time.strftime("%H:%M"), result=result, error=error)
+
+
 def _install_latest(cfg: dict) -> dict:
     info = latest_release(cfg)
     if not info["url"] or _vtuple(info["version"]) <= _vtuple(VERSION):
+        _note_update("up to date")
         return {"updated": False, "latest": info["version"]}
     tmp = DATA / "update.zip.part"
     netfetch.fetch_file(info["url"], tmp)
     raw = tmp.read_bytes()
     tmp.unlink(missing_ok=True)
+    _note_update("installing " + info["version"])
     r = _apply_update(raw)
     return {"updated": True, "latest": info["version"], **r}
 
@@ -928,6 +945,7 @@ def _auto_update_loop(st: State):
                 if r.get("updated"):
                     return  # the program restarts
             except Exception as e:
+                _note_update(error=str(e)[:140])
                 log.info("Update check failed: %s", e)
         st.stop.wait(180)  # every 3 minutes: one tiny request to GitHub
 

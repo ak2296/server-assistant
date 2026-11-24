@@ -197,8 +197,10 @@ async function renderServer() {
   const btn = $("#actionBtn"); btn.hidden = false; btn.textContent = "Scan libraries";
   btn.onclick = async () => { try { await api("/api/plex/scan", {method:"POST"}); toast("Plex is scanning your libraries"); } catch (e) { toast(e.message); } };
   const [d, sum] = await Promise.all([api("/api/server"), api("/api/summary").catch(() => null)]);
-  const s = d.system, p = d.plex;
-  let h = "";
+  const s = d.system, p = d.plex, a = d.app;
+  const upd = !a.auto ? "auto-update off" : a.update.error ? `<span class="fail">update check failed</span>` : a.update.result === "up to date" ? `up to date, checked ${esc(a.update.at)}`
+    : a.update.result ? esc(a.update.result) + "…" : "checks for updates every 3 min";
+  let h = `<div class="muted" style="padding:2px 2px 0">Server Assistant <b style="color:var(--text)">v${esc(a.version)}</b> · running ${dur(a.uptime)} · ${upd}</div>`;
   if (sum) h += `<h2>This week</h2><div class="card"><div class="kv" style="gap:14px;flex-wrap:wrap">
       <span><b style="color:var(--text)">${sum.plays}</b> plays by ${sum.viewers} ${sum.viewers === 1 ? "person" : "people"}</span><span><b style="color:var(--text)">${sum.added}</b> added to Plex</span>
       <span><b style="color:var(--text)">${sum.subtitles}</b> subtitles</span><span><b style="color:var(--text)">${sum.releases}</b> new releases</span><span><b style="color:var(--text)">${sum.sorted}</b> files sorted</span></div>
@@ -213,7 +215,7 @@ async function renderServer() {
     setSub(my, `<span class="dot" style="background:var(--good)"></span><b>${esc(sv.name)}</b> · Plex ${esc((sv.version || "").split("-")[0])}${sv.plex_pass ? " · Plex Pass" : ""}<br>${remote}${p.update && p.update.available ? ` · <span class="warn">Update ${esc(p.update.version.split("-")[0])} available</span>` : ""}`);
   }
 
-  $("#railStatus").innerHTML = p.online ? `<span class="ok">●</span> Plex is running<br>Up ${dur(s.uptime)}` : `<span class="fail">●</span> Plex is not responding`;
+  $("#railStatus").innerHTML = (p.online ? `<span class="ok">●</span> Plex is running<br>Up ${dur(s.uptime)}` : `<span class="fail">●</span> Plex is not responding`) + `<br>Server Assistant v${esc(a.version)}`;
   // Now playing
   if (p.online) {
     const ss = p.sessions || [];
@@ -435,8 +437,8 @@ function folderBlock(key, title, info, plexList, plexLabel) {
       <label class="chip ${auto ? "" : "on"}"><input type="radio" name="${key}Mode" value="custom" ${auto ? "" : "checked"} hidden onchange="modeSel('${key}')">Choose myself</label>
     </div>
     <div id="${key}Auto" ${auto ? "" : "hidden"}>
-      <div class="folderlist">${plexList.length ? plexList.map(f => `<div>📁 ${esc(f)}</div>`).join("") : `<span class="warn">Plex has no ${plexLabel} library${settings.plex_connected ? "" : " (Plex not connected)"}.</span>`}</div>
-      <div class="hint">These are the folders your Plex ${plexLabel} libraries use. Add a folder in Plex and it's picked up here automatically.</div>
+      <div class="folderlist">${plexList.length ? plexList.map(f => `<label class="check" style="margin:2px 0"><input type="checkbox" class="exc-${key}" value="${esc(f)}" ${(info.exclude || []).some(x => x.replace(/[\\/]+$/, "").toLowerCase() === f.replace(/[\\/]+$/, "").toLowerCase()) ? "" : "checked"}>${esc(f)}</label>`).join("") : `<span class="warn">Plex has no ${plexLabel} library${settings.plex_connected ? "" : " (Plex not connected)"}.</span>`}</div>
+      <div class="hint">These are the folders your Plex ${plexLabel} libraries use. <b>Untick a folder to leave it out</b> (for example audiobooks or podcasts). New folders added in Plex are picked up automatically.</div>
     </div>
     <div id="${key}Custom" ${auto ? "hidden" : ""}>
       <textarea id="${key}Folders" placeholder="One folder per line, e.g. D:\\Media\\Music">${esc(info.custom.join("\n"))}</textarea>
@@ -557,7 +559,7 @@ async function renderSettings() {
   tailnetRefresh();
   api("/api/backup").then(b => { const e = $("#bkInfo"); if (e) e.innerHTML = !b.found ? "Plex's database wasn't found on this PC."
     : `One backup is about <b>${bytes(b.estimate)}</b>.` + (b.last ? ` Last: ${esc(b.last)} (${bytes(b.last_size)}), ${b.copies} kept.` : " No backup yet."); }).catch(() => {});
-  api("/api/version").then(v => { const e = $("#verLine"); if (e) e.innerHTML = `Version <b>${esc(v.version)}</b>${v.installed ? " · installed with Setup" : ""}<br>Your settings are in ${esc(v.data_folder)}`; }).catch(() => {});
+  api("/api/version").then(v => { const e = $("#verLine"); if (e) e.innerHTML = `Version <b>${esc(v.version)}</b>${v.installed ? " · installed with Setup" : ""}<br>${v.auto ? (v.update.at ? `Last check ${esc(v.update.at)}: ${v.update.error ? `<span class="fail">${esc(v.update.error)}</span>` : esc(v.update.result)}` : "Auto-update starts a minute after the program starts.") : "Auto-update is off."}<br>Your settings are in ${esc(v.data_folder)}`; }).catch(() => {});
 }
 function tailnetText(t) {
   if (!t.enabled) return "Off.";
@@ -607,8 +609,8 @@ async function saveSettings(ev) {
   const mode = k => document.querySelector(`input[name=${k}Mode]:checked`).value;
   const body = {
     music: { mode: mode("music"), custom: val("musicFolders").value, download_folders: val("dlFolders").value,
-             lookback_days: val("lookback").value, catalog_gaps: val("catGaps").checked, sources: [...document.querySelectorAll(".msrc:checked")].map(x => x.value), release_types: [...document.querySelectorAll(".rtype:checked")].map(x => x.value) },
-    movies: { mode: mode("movies"), custom: val("moviesFolders").value },
+             exclude: [...document.querySelectorAll(".exc-music:not(:checked)")].map(x => x.value), lookback_days: val("lookback").value, catalog_gaps: val("catGaps").checked, sources: [...document.querySelectorAll(".msrc:checked")].map(x => x.value), release_types: [...document.querySelectorAll(".rtype:checked")].map(x => x.value) },
+    movies: { mode: mode("movies"), custom: val("moviesFolders").value, exclude: [...document.querySelectorAll(".exc-movies:not(:checked)")].map(x => x.value) },
     subtitles: { enabled: val("sEnabled").checked, languages: val("sLang").value },
     qbittorrent: { engine: document.querySelector("input[name=qEngine]:checked").value, enabled: val("qEnabled").checked, url: val("qUrl").value, username: val("qUser").value, password: val("qPass").value, save_path: val("qSave").value, upload_limit_kb: val("qUp").value },
     updates: { auto: val("updAuto").checked },

@@ -31,11 +31,13 @@ def load_config(path: str | Path | None = None) -> dict:
     music.setdefault("release_types", ["Album", "Single", "EP"])
     music.setdefault("skip_secondary_types", ["Compilation", "Live"])
     music.setdefault("check_every_hours", 12)
+    music.setdefault("exclude", [])       # Plex folders to leave out (audiobooks, podcasts...)
     music.setdefault("catalog_gaps", False)   # also list older albums you do not own
     music.setdefault("sources", ["musicbrainz", "deezer", "itunes"])  # where to look for new releases
     music.setdefault("settle_seconds", 60)
 
     subs = cfg.setdefault("subtitles", {})
+    subs.setdefault("exclude", [])        # movie folders to leave out
     subs.setdefault("enabled", False)
     subs.setdefault("movie_folders", "auto")  # "auto" = take the movie folders from Plex
     subs.setdefault("languages", ["en", "fa"])

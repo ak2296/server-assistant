@@ -18,6 +18,9 @@ jobs:
           cp -r app run.py tray.py appwindow.py requirements.txt requirements-optional.txt config.example.toml README.md VERSION ServerAssistant/
           find ServerAssistant -name __pycache__ -prune -exec rm -rf {} +
           zip -qr ServerAssistant.zip ServerAssistant
+          cp start.bat ServerAssistant/
+          zip -qr ServerAssistant-Portable.zip ServerAssistant
+          rm ServerAssistant/start.bat
           echo "VER=$VER" >> "$GITHUB_ENV"
       - name: Build the installers
         run: |
@@ -36,6 +39,7 @@ jobs:
           make_latest: false
           files: |
             ServerAssistant.zip
+            ServerAssistant-Portable.zip
             ServerAssistant-Setup.exe
             ServerAssistant-Viewer-Setup.exe
             ServerAssistant-Viewer.zip

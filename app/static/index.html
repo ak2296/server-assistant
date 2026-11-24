@@ -377,6 +377,15 @@ async function stopStream(id) {
   catch (e) { toast(e.message); }
   render();
 }
+async function fixDetails() {
+  const e = document.getElementById("fixInfo"); if (!e) return;
+  try {
+    const d = await api("/api/downloads/fix-log");
+    e.textContent = `Python in use: ${d.python} (${d.bits}-bit)\nProgram environment: ${d.environment}\nlibtorrent: ${d.libtorrent.state}${d.libtorrent.detail ? " - " + d.libtorrent.detail : ""}\n`
+      + (d.old_environments.length ? `Old environments left: ${d.old_environments.join(", ")}\n` : "") + (d.log ? `\n--- repair log ---\n${d.log}` : "\n(no repair log yet)");
+    e.hidden = false;
+  } catch (x) { e.textContent = x.message; e.hidden = false; }
+}
 async function fixDownloader() {
   try { await api("/api/downloads/fix", {method:"POST"}); toast("Repairing… the app will restart. Reload this page in a few minutes."); } catch (e) { toast(e.message); }
 }
@@ -494,7 +503,8 @@ async function renderDownloads() {
   let h = "";
   if (dl.error && /libtorrent/.test(dl.error)) h += `<div class="card" style="margin-bottom:12px"><div class="title" style="font-size:15px">The built-in downloader can't start</div>
     <div class="hint" style="margin:6px 0 10px">It needs Python 3.13 (3.14 is too new for it). Repair installs Python 3.13 for your user only, without changing your own Python, rebuilds the app on it and restarts the app. It takes a few minutes and needs internet. Your settings are kept.</div>
-    <div class="actions"><button class="small primary" onclick="fixDownloader()">Repair the downloader</button></div></div>`;
+    <div class="actions"><button class="small primary" onclick="fixDownloader()">Repair the downloader</button><button class="small" onclick="fixDetails()">Show details</button></div>
+    <pre id="fixInfo" class="hint" style="white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0 0;font-size:12px" hidden></pre></div>`;
   const ts = dl.torrents || [];
   if (ts.length) h += `<h2>Downloading</h2><div class="stack">${ts.map(t => `<div class="card">
       <div class="title" style="font-size:14px">${esc(t.name)}</div>

@@ -1,0 +1,21 @@
+name: Build Android app (check)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["android-source/**", ".github/workflows/build-android.yml"]
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the APK
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"; export KEYSTORE="$RUNNER_TEMP/release.keystore"; fi
+          bash android-source/build-ci.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ServerAssistant-apk
+          path: android-source/ServerAssistant.apk

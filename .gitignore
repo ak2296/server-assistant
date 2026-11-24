@@ -3,3 +3,6 @@ __pycache__/
 *.exe
 config.toml
 *.db
+android-source/build/
+android-source/ServerAssistant.apk
+android-source/*.keystore

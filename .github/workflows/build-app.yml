@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["app/**", "run.py", "tray.py", "appwindow.py", "requirements*.txt", "config.example.toml", "README.md", "VERSION", "installer/**"]
+    paths: ["app/**", "run.py", "tray.py", "appwindow.py", "requirements*.txt", "config.example.toml", "README.md", "VERSION", "installer/**", "android-source/**"]
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -11,6 +11,14 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Build the Android app (needs the signing key secret)
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KS_B64" ]; then echo "No ANDROID_KEYSTORE_B64 secret: keeping the APK that is already in the repository"; exit 0; fi
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          KEYSTORE="$RUNNER_TEMP/release.keystore" bash android-source/build-ci.sh
+          cp android-source/ServerAssistant.apk app/static/ServerAssistant.apk
       - name: Build the update zip
         run: |
           VER=$(cat VERSION | tr -d '[:space:]')
@@ -43,3 +51,4 @@ jobs:
             ServerAssistant-Setup.exe
             ServerAssistant-Viewer-Setup.exe
             ServerAssistant-Viewer.zip
+            app/static/ServerAssistant.apk

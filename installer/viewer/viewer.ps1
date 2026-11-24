@@ -26,17 +26,24 @@ function Open-App($url) {
   if ($b) { return (Start-Process $b -PassThru -ArgumentList "--app=$url", "--user-data-dir=`"$data\window`"", "--window-size=1280,860") }
   Start-Process $url; return $null
 }
-function Alive($url) {
-  try { $r = Invoke-RestMethod -Uri "$url/api/ping" -TimeoutSec 2; return $r.app -eq "server-assistant" } catch { return $false }
+try { [System.Net.WebRequest]::DefaultWebProxy = $null } catch {}  # a system proxy must never sit between this PC and a server on the home network
+function Alive($url, $sec = 2) {
+  try { $r = Invoke-RestMethod -Uri "$url/api/ping" -TimeoutSec $sec; return $r.app -eq "server-assistant" } catch { return $false }
 }
 
 # 1. At home: the server answers directly.
-foreach ($h in @("$name.local", $name)) {
-  if (Alive "http://${h}:8765") {
+# The last address that worked goes first; name lookups on a home network can take several seconds, so they get a longer wait.
+$last = Join-Path $data "last-server.txt"
+$cands = @(); if (Test-Path $last) { $cands += (Get-Content $last -Raw).Trim() }
+$cands += @("$name.local", $name)
+foreach ($h in ($cands | Where-Object { $_ } | Select-Object -Unique)) {
+  if (Alive "http://${h}:8765" 6) {
     # Open by IP address: name lookups on a home network (mDNS) are slow and sometimes fail, which shows up as "Failed to fetch".
     $ip = $null
     try { $ip = ([System.Net.Dns]::GetHostAddresses($h) | Where-Object { $_.AddressFamily -eq "InterNetwork" } | Select-Object -First 1).IPAddressToString } catch {}
-    if ($ip -and (Alive "http://${ip}:8765")) { Open-App "http://${ip}:8765" } else { Open-App "http://${h}:8765" }
+    if ($ip -and (Alive "http://${ip}:8765" 4)) { $h = $ip }
+    try { Set-Content -Path $last -Value $h } catch {}
+    [void](Open-App "http://${h}:8765")
     exit 0
   }
 }

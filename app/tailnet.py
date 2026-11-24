@@ -31,15 +31,42 @@ class Tailnet:
     def installed(self) -> bool:
         return self.exe.is_file()
 
+    def _fetch(self, url: str, dest) -> str:
+        """Download with Python first; if the certificate check fails, let Windows itself do it (it trusts what Windows trusts)."""
+        errors = []
+        try:
+            import requests
+            with requests.get(url, stream=True, timeout=60) as r:
+                r.raise_for_status()
+                with open(dest, "wb") as f:
+                    for chunk in r.iter_content(1 << 16):
+                        f.write(chunk)
+            return ""
+        except Exception as e:
+            errors.append(str(e)[:120])
+        if sys.platform == "win32":
+            flags = subprocess.CREATE_NO_WINDOW
+            for cmd in (["curl.exe", "-L", "--fail", "-o", str(dest), url],
+                        ["powershell", "-NoProfile", "-Command",
+                         f"[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '{url}' -OutFile '{dest}'"]):
+                try:
+                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=300, creationflags=flags)
+                    if r.returncode == 0 and os.path.exists(dest) and os.path.getsize(dest) > 0:
+                        return ""
+                    errors.append((r.stderr or r.stdout)[-120:])
+                except Exception as e:
+                    errors.append(str(e)[:120])
+        return " | ".join(errors)
+
     def download(self, url: str):
         self.exe.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.exe.with_suffix(".part")
-        with urllib.request.urlopen(url, timeout=60) as r, open(tmp, "wb") as f:
-            while chunk := r.read(1 << 16):
-                f.write(chunk)
-        if tmp.stat().st_size < 1_000_000:
+        tmp.unlink(missing_ok=True)
+        err = self._fetch(url, tmp)
+        if err or not tmp.exists() or tmp.stat().st_size < 1_000_000:
             tmp.unlink(missing_ok=True)
-            raise RuntimeError("The download is too small to be the helper. Check the helper address in Settings.")
+            raise RuntimeError("Download failed (" + (err or "file too small") + "). Download satailnet.exe in your browser from the helper address and save it in "
+                               + str(self.exe.parent))
         tmp.replace(self.exe)
         if sys.platform != "win32":
             self.exe.chmod(0o755)

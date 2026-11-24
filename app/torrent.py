@@ -14,6 +14,44 @@ import requests
 log = logging.getLogger("torrent")
 
 
+LT_STATE = {"state": "unknown", "detail": ""}  # unknown | ok | installing | failed
+
+
+def ensure_libtorrent():
+    """Make sure the libtorrent component is installed (it is an optional download that can fail quietly at Setup).
+    Runs in the background at start-up; the reason is kept so the Downloads page can show it."""
+    import subprocess
+    import sys
+    try:
+        import libtorrent  # noqa: F401
+        LT_STATE.update(state="ok", detail="")
+        return
+    except Exception as e:  # ImportError, or a missing system DLL
+        LT_STATE.update(state="installing", detail=f"{type(e).__name__}: {e}")
+    py = Path(sys.executable).with_name("python.exe")
+    py = py if py.exists() else Path(sys.executable)
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    last = ""
+    for extra in (["--use-feature=truststore"], []):  # first with Windows' own certificates, then plain
+        try:
+            r = subprocess.run([str(py), "-m", "pip", "install", "-q", "--upgrade", *extra, "libtorrent"],
+                               capture_output=True, text=True, timeout=600, creationflags=flags)
+        except Exception as e:
+            last = str(e); continue
+        if r.returncode == 0:
+            break
+        last = (r.stderr or r.stdout or "pip failed").strip().splitlines()[-1][:300]
+    try:
+        import importlib
+        importlib.invalidate_caches()
+        import libtorrent  # noqa: F401
+        LT_STATE.update(state="ok", detail="")
+        log.info("libtorrent installed")
+    except Exception as e:
+        LT_STATE.update(state="failed", detail=(last or f"{type(e).__name__}: {e}"))
+        log.warning("libtorrent unavailable: %s", LT_STATE["detail"])
+
+
 class BuiltinClient:
     tag = "server-assistant"
 
@@ -21,8 +59,11 @@ class BuiltinClient:
         try:
             import libtorrent as lt
         except ImportError as e:
-            raise RuntimeError("The built-in downloader needs the 'libtorrent' component. Run Setup again, or "
-                               "start.bat, with an internet connection. (Or pick qBittorrent in Settings.)") from e
+            st = LT_STATE["state"]
+            why = (" Reason: " + LT_STATE["detail"]) if LT_STATE["detail"] else ""
+            raise RuntimeError("The built-in downloader is still being installed. Try again in a minute." + why if st == "installing"
+                               else "The built-in downloader needs the 'libtorrent' component and could not install it." + why
+                               + " (Or pick qBittorrent in Settings.)") from e
         self.lt = lt
         q = cfg["qbittorrent"]
         self.category = q.get("category", "server-assistant")

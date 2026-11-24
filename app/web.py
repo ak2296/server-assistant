@@ -205,6 +205,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=discovery.advertise, args=(int(state.cfg["server"]["port"]),), daemon=True).start()
     threading.Thread(target=state.tailnet.start, args=(state.cfg,), daemon=True).start()
     threading.Thread(target=state.resolve_paths, daemon=True).start()  # ask Plex for folders in the background
+    threading.Thread(target=torrent.ensure_libtorrent, daemon=True).start()
     yield
     state.tailnet.stop()
     discovery.stop()

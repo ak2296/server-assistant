@@ -132,18 +132,31 @@ def _swap(root: Path):
     cmd.write_text("\r\n".join([
         "@echo off", 'cd /d "%~dp0"', "set n=0", ":wait", "timeout /t 2 /nobreak >nul",
         'ren ".venv" ".venv-old" 2>nul', 'if exist ".venv-old" goto swapped',
-        "set /a n+=1", "if %n% lss 10 goto wait", "goto begin",
+        "set /a n+=1", "if %n% lss 20 goto wait", "goto begin",
         ":swapped", 'ren ".venv313" ".venv"',
         ":begin", 'if not exist ".venv\\Scripts\\pythonw.exe" ren ".venv-old" ".venv"',
         'start "" ".venv\\Scripts\\pythonw.exe" tray.py --open', ""]), encoding="ascii")
     subprocess.Popen(["cmd", "/c", str(cmd)], cwd=str(root), creationflags=NOWIN | subprocess.CREATE_NEW_PROCESS_GROUP, close_fds=True)
     STATE["done"] = True
     time.sleep(1.5)  # let the page read the final message
-    me, prefix = os.getpid(), str(root / ".venv").lower()
-    for p in psutil.process_iter(["pid", "exe"]):  # the tray, the app window and this server all run from the old environment
+    # A venv's python.exe/pythonw.exe is only a launcher: the real program is a child process running from the base Python,
+    # and it still holds the environment's files. So stop everything of this app: by program path and by command line.
+    me, base = os.getpid(), str(root).lower()
+    victims = []
+    for p in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
         try:
-            if p.info["pid"] != me and p.info["exe"] and p.info["exe"].lower().startswith(prefix):
-                p.kill()
+            exe = (p.info["exe"] or "").lower()
+            cmd = " ".join(p.info["cmdline"] or []).lower()
+            if p.info["pid"] == me:
+                continue
+            if exe.startswith(base + "\\.venv") or (base in cmd and "python" in (p.info["name"] or "").lower()):
+                victims.append(p)
         except Exception:
             continue
+    for p in victims:
+        try:
+            p.kill()
+        except Exception:
+            pass
+    psutil.wait_procs(victims, timeout=5)
     os._exit(0)

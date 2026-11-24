@@ -197,7 +197,12 @@ class Plex:
                      "type": m.get("type"), "year": m.get("year"), "added_at": m.get("addedAt"),
                      "thumb": m.get("thumb") or m.get("parentThumb") or m.get("grandparentThumb")})
         for k in out:
-            out[k] = sorted(out[k], key=lambda x: -(x.get("added_at") or 0))[:n]
+            seen, uniq = set(), []
+            for x in sorted(out[k], key=lambda x: -(x.get("added_at") or 0)):
+                key = (x["title"], x["parent"], x["year"])
+                if key not in seen:
+                    seen.add(key); uniq.append(x)
+            out[k] = uniq[:n]
         return out
 
     def history(self, n: int = 80) -> list[dict]:

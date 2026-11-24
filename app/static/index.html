@@ -269,7 +269,7 @@ async function renderServer() {
   $("#heading").textContent = "Server";
   const btn = $("#actionBtn"); btn.hidden = false; btn.textContent = "Scan libraries";
   btn.onclick = async () => { try { await api("/api/plex/scan", {method:"POST"}); toast("Plex is scanning your libraries"); } catch (e) { toast(e.message); } };
-  const [d, sum, uns] = await Promise.all([api("/api/server"), api("/api/summary").catch(() => null), api("/api/library/unseen").catch(() => null)]);
+  const [d, sum, uns, rec] = await Promise.all([api("/api/server"), api("/api/summary").catch(() => null), api("/api/library/unseen").catch(() => null), api("/api/library/recent").catch(() => null)]);
   const s = d.system, p = d.plex, a = d.app;
   const upd = !a.auto ? "auto-update off" : a.update.error ? `<span class="fail">update check failed</span>` : a.update.result === "up to date" ? `up to date, checked ${esc(a.update.at)}`
     : a.update.result ? esc(a.update.result) + "…" : "checks for updates every 3 min";
@@ -340,6 +340,12 @@ async function renderServer() {
         <span style="color:var(--text)">${esc(l.title)}${l.refreshing ? ` <span class="warn">scanning…</span>` : ""}</span>
         <span>${l.count ?? "–"} ${esc(l.unit || "")}${l.count2 != null ? ` · ${l.count2} ${esc(l.unit2)}` : ""}
         <button class="small" style="margin-left:6px" onclick="scanLib('${esc(l.key)}')">Scan</button></span></div>`).join(""), `${libs.length} libraries`);
+    // Recently added: video and music as two tabs, each a sideways row
+    if (rec && (rec.video.length || rec.audio.length)) h += fold("recent", "Recently added", `
+      <div class="chips" style="padding:0 0 8px"><button class="chip ${recTab === "video" ? "on" : ""}" data-rt="video" onclick="recTabSet('video')">Video ${rec.video.length}</button>
+        <button class="chip ${recTab === "audio" ? "on" : ""}" data-rt="audio" onclick="recTabSet('audio')">Music ${rec.audio.length}</button></div>
+      <div id="rt-video" ${recTab === "video" ? "" : "hidden"}>${railHtml(rec.video, "video")}</div>
+      <div id="rt-audio" ${recTab === "audio" ? "" : "hidden"}>${railHtml(rec.audio, "audio")}</div>`, "video and music", true);
     // Files Plex hasn't picked up yet
     if (uns && (uns.count || uns.progress.running)) h += fold("unseen", "Not in Plex yet", `
       <div class="hint" style="margin:0 0 8px">Video and audio files from the last ${uns.progress.days} days that are in your library folders but not in Plex. Plex scans only the folders you send, not the whole library.</div>
@@ -377,16 +383,19 @@ async function sendUnseen(folder) {
 }
 async function ignoreUnseen(folder) { try { await api("/api/library/unseen/ignore", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({folder})}); render(); } catch (e) { toast(e.message); } }
 // Recently added: one sideways row (a carousel) per kind, shown on the Music and Subtitles tabs
-async function recentRail(kind) {
-  let r; try { r = await api("/api/library/recent"); } catch (e) { return ""; }
-  const list = (r && r[kind]) || [];
-  if (!list.length) return "";
-  const music = kind === "audio";
-  const id = "rail-" + kind;
-  return `<h2>Recently added</h2><div class="railwrap"><button class="pv" aria-label="Previous" onclick="railGo('${id}',-1)">‹</button><button class="nx" aria-label="Next" onclick="railGo('${id}',1)">›</button>
+function railHtml(list, kind) {
+  if (!list || !list.length) return `<div class="empty" style="padding:18px">Nothing added lately.</div>`;
+  const music = kind === "audio", id = "rail-" + kind;
+  return `<div class="railwrap"><button class="pv" aria-label="Previous" onclick="railGo('${id}',-1)">‹</button><button class="nx" aria-label="Next" onclick="railGo('${id}',1)">›</button>
     <div class="rail" id="${id}" tabindex="0" aria-label="Recently added ${music ? "music" : "movies and shows"}">${list.map(x => `<div>
       <img class="${music ? "sq" : "poster"}" loading="lazy" decoding="async" alt="" onerror="this.style.visibility='hidden'" src="${thumb(x.thumb, 200)}">
       <div class="cap">${esc(x.parent && music ? x.parent : x.title)}</div><div class="cap meta">${music ? esc(x.title) : esc(x.parent || x.year || "")} · ${ago(x.added_at)}</div></div>`).join("")}</div></div>`;
+}
+let recTab = "video";
+function recTabSet(t) {
+  recTab = t;
+  document.querySelectorAll("[data-rt]").forEach(b => b.classList.toggle("on", b.dataset.rt === t));
+  document.querySelectorAll("[id^=rt-]").forEach(d => d.hidden = d.id !== "rt-" + t);
 }
 function railGo(id, dir) { const e = document.getElementById(id); if (e) e.scrollBy({left: dir * e.clientWidth * 0.8, behavior: "smooth"}); }
 async function scanLib(key) { try { await api(`/api/plex/scan?section=${encodeURIComponent(key)}`, {method:"POST"}); toast("Scan started"); render(); } catch (e) { toast(e.message); } }
@@ -468,8 +477,7 @@ async function renderMusic() {
   const skippedBox = musicFilter === "skipped" && skippedArtists.length
     ? `<h2>Skipped artists</h2><div class="stack"><div class="card"><div class="hint" style="margin-bottom:6px">These artists are not checked for new releases.</div>${skippedArtists.map(a =>
         `<div class="row" style="justify-content:space-between;gap:8px;padding:4px 0"><span>${esc(a)}</span><button class="small" data-a="${esc(a)}" onclick="unskipArtist(this.dataset.a)">Remove</button></div>`).join("")}</div></div><h2>Skipped releases</h2>` : "";
-  const rail = await recentRail("audio");
-  setView(my, `${rail}<div class="chips">${chips}</div>${skippedBox}<div class="stack relgrid">${rows.length ? rows.map(releaseCard).join("") : `<div class="empty">${empty}</div>`}</div>`);
+  setView(my, `<div class="chips">${chips}</div>${skippedBox}<div class="stack relgrid">${rows.length ? rows.map(releaseCard).join("") : `<div class="empty">${empty}</div>`}</div>`);
 }
 
 /* ---------------- DOWNLOADS ---------------- */
@@ -517,7 +525,7 @@ async function renderSubs() {
   $("#heading").textContent = "Subtitles";
   const btn = $("#actionBtn"); btn.hidden = false; btn.textContent = "Check now";
   btn.onclick = async () => { await api("/api/check-subtitles", {method:"POST"}); toast("Looking for missing subtitles…"); };
-  const [st, rows, gaps, rail] = await Promise.all([api("/api/status"), api("/api/subtitles"), api("/api/library/subtitle-gaps").catch(() => null), recentRail("video")]);
+  const [st, rows, gaps] = await Promise.all([api("/api/status"), api("/api/subtitles"), api("/api/library/subtitle-gaps").catch(() => null)]);
   const s = st.subtitles;
   const gapBox = gaps && gaps.total ? `<h2>Missing in Plex <span class="muted" style="font-weight:400">${gaps.missing.length} of ${gaps.total} movies</span></h2>
     <div class="card"><div class="actions" style="margin:0 0 6px"><button class="small" onclick="api('/api/library/scan-subtitles',{method:'POST'}).then(()=>{toast('Scanning Plex…');setTimeout(render,2500)})">${gaps.progress.running ? "Scanning " + gaps.progress.done + "/" + gaps.progress.total : "Rescan"}</button></div>
@@ -526,7 +534,7 @@ async function renderSubs() {
     : s.running ? "Searching…" : s.last_run ? `Last check ${esc(s.last_run)} · ${s.last_count} downloaded` : "");
   const label = {downloaded:"✓ Downloaded", not_found:"– None found yet", error:"✗ Error"};
   if (my !== seq) return;
-  $("#view").innerHTML = `${rail}${gapBox}<div class="stack">${rows.length ? rows.map(r => `<div class="card log">
+  $("#view").innerHTML = `${gapBox}<div class="stack">${rows.length ? rows.map(r => `<div class="card log">
       <div class="${r.status === "downloaded" ? "ok" : r.status === "error" ? "fail" : ""}">${label[r.status] || esc(r.status)} · ${esc(r.language)}</div>
       <div class="path">${esc(r.video.split(/[\\/]/).pop())}</div><div class="meta">${esc(r.at.replace("T", " "))} ${esc(r.message)}</div></div>`).join("")
     : `<div class="empty">No subtitle activity yet.</div>`}</div>`;

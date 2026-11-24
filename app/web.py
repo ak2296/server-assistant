@@ -501,6 +501,18 @@ def scan_subtitles_now():
 _RECENT = {"at": 0.0, "data": {"audio": [], "video": []}}
 
 
+@app.post("/api/downloads/fix")
+def fix_downloader():
+    """Rebuild the program's environment on Python 3.13 so the built-in downloader (libtorrent) works. Windows only."""
+    script = ROOT / "fix-downloader.ps1"
+    if sys.platform != "win32" or not script.exists():
+        raise HTTPException(400, "This repair is only available in the Windows program.")
+    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+    subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", str(script)],
+                     creationflags=flags, close_fds=True)
+    return {"ok": True}
+
+
 @app.get("/api/library/recent")
 def library_recent():
     """Recently added music and video for the carousels. Cached for 2 minutes so it costs Plex almost nothing."""

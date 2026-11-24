@@ -18,7 +18,7 @@ function Stop-Running {
 function Test-Python($exe, $extra) {
     try {
         $out = & $exe @extra -c "import sys; print(sys.version_info[0]*100+sys.version_info[1])" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $out -match '^\d+$' -and [int]$out -ge 311) { return $true }
+        if ($LASTEXITCODE -eq 0 -and $out -match '^\d+$' -and [int]$out -ge 311 -and [int]$out -le 313) { return $true }  # libtorrent has no build for 3.14
     } catch {}
     return $false
 }
@@ -44,7 +44,7 @@ function Find-Python {
 function Install-Python {
     $url = "https://www.python.org/ftp/python/3.13.1/python-3.13.1-amd64.exe"
     $file = Join-Path $env:TEMP "python-3.13.1-amd64.exe"
-    Write-Host "Python 3.11 or newer was not found. Downloading Python 3.13 (about 27 MB)..."
+    Write-Host "Python 3.11 to 3.13 was not found (your own newer Python is left alone). Downloading Python 3.13 (about 27 MB)..."
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing
     Write-Host "Installing Python for your user account only..."

@@ -30,6 +30,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -76,6 +77,8 @@ public class MainActivity extends Activity {
     private TextView connStatus;
     private Button connLogin;
     private String loginUrl;
+    private View loadingOverlay;
+    private Runnable loadTimeout;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -387,6 +390,11 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPageFinished(WebView view, String url) {
+                doneLoading();
+            }
+
+            @Override
             public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError err) {
                 if (req.isForMainFrame()) showOffline(null);
             }
@@ -417,9 +425,39 @@ public class MainActivity extends Activity {
             }
         });
 
-        setContentView(web);
+        // A "Connecting" screen on top until the page has loaded, so a slow server never looks like a black screen.
+        FrameLayout frame = new FrameLayout(this);
+        frame.setBackgroundColor(BG);
+        frame.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        LinearLayout ov = new LinearLayout(this);
+        ov.setOrientation(LinearLayout.VERTICAL);
+        ov.setGravity(Gravity.CENTER);
+        ov.setBackgroundColor(BG);
+        ov.addView(new ProgressBar(this));
+        TextView t = text("Connecting to your server…", 15, MUTED);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(0, dp(14), 0, 0);
+        ov.addView(t);
+        frame.addView(ov, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        loadingOverlay = ov;
+        setContentView(frame);
+        if (loadTimeout != null) ui.removeCallbacks(loadTimeout);
+        loadTimeout = new Runnable() {
+            public void run() {
+                if (loadingOverlay != null && web != null) {
+                    web.stopLoading();
+                    showOffline("The server didn't answer in time. It may be busy or restarting. Wait a minute and try again.");
+                }
+            }
+        };
+        ui.postDelayed(loadTimeout, 25000);
         web.loadUrl(base() + "/" + (hash.isEmpty() ? "" : "#" + hash));
         handleIncoming();
+    }
+
+    private void doneLoading() {
+        if (loadTimeout != null) { ui.removeCallbacks(loadTimeout); loadTimeout = null; }
+        if (loadingOverlay != null) { loadingOverlay.setVisibility(View.GONE); loadingOverlay = null; }
     }
 
     private boolean openOutside(Uri uri) {
@@ -432,6 +470,7 @@ public class MainActivity extends Activity {
     }
 
     private void showOffline(String reason) {
+        doneLoading();
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER);

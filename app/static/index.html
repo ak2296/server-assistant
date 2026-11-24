@@ -58,6 +58,13 @@
   .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
   .pill { display:inline-block; font-size:12px; padding:3px 8px; border-radius:8px; background:var(--card2); color:var(--muted); margin:3px 4px 0 0; }
   .pill.t { background:#3d3112; color:var(--accent); }
+  .rail { display:flex; gap:12px; overflow-x:auto; scroll-snap-type:x proximity; padding:2px 2px 10px; margin:0 -2px; scrollbar-width:thin; overscroll-behavior-x:contain; }
+  .rail > div { flex:0 0 118px; scroll-snap-align:start; min-width:0; }
+  .rail .poster, .rail .sq { width:118px; background:var(--card2) center/cover no-repeat; border-radius:10px; display:block; object-fit:cover; }
+  .rail .poster { height:177px; } .rail .sq { height:118px; }
+  .rail .cap { font-size:13px; margin-top:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .railwrap { position:relative; } .railwrap .nx, .railwrap .pv { display:none; }
+  @media (hover:hover) and (min-width:900px) { .railwrap .nx, .railwrap .pv { display:grid; place-items:center; position:absolute; top:60px; width:36px; height:36px; min-height:0; padding:0; border-radius:50%; background:rgba(31,35,38,.92); box-shadow:0 0 0 1px var(--line); z-index:2; } .railwrap .pv { left:-12px; } .railwrap .nx { right:-12px; } }
   .recent { display:grid; grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); gap:12px; }
   .recent .poster { width:100%; height:auto; aspect-ratio:2/3; }
   .recent .cap { font-size:13px; margin-top:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -336,11 +343,6 @@ async function renderServer() {
       ${uns.folders.slice(0, 40).map(g => `<div class="kv" style="padding:6px 0;gap:10px;align-items:flex-start"><span style="min-width:0"><span style="color:var(--text);overflow-wrap:anywhere">${esc(g.folder.split(/[\\/]/).slice(-2).join(" / "))}</span><br><span class="meta">${g.kind === "audio" ? "♪" : "▶"} ${g.files.length} file${g.files.length > 1 ? "s" : ""} · ${esc(g.files[0])}${g.files.length > 1 ? " …" : ""}</span></span>
         <span style="white-space:nowrap"><button class="small" data-f="${esc(g.folder)}" onclick="sendUnseen(this.dataset.f)">Scan</button> <button class="small" data-f="${esc(g.folder)}" onclick="ignoreUnseen(this.dataset.f)" title="Never list this folder again">Hide</button></span></div>`).join("")}
       ${uns.folders.length > 40 ? `<div class="hint">+${uns.folders.length - 40} more folders</div>` : ""}`, `${uns.count} file${uns.count === 1 ? "" : "s"}`, true);
-    // Recently added
-    const rec = p.recent || [];
-    if (rec.length) h += `<h2>Recently added</h2><div class="recent">${rec.map(x => `<div>
-        <div class="poster" style="background-image:url('${thumb(x.thumb, 200)}')"></div>
-        <div class="cap">${esc(x.parent || x.title)}</div><div class="cap meta">${x.parent ? esc(x.title) : esc(x.year || "")} · ${ago(x.added_at)}</div></div>`).join("")}</div>`;
     // History
     const hist = p.history || [];
     if (hist.length) {
@@ -369,6 +371,19 @@ async function sendUnseen(folder) {
     toast(`Plex is scanning ${r.folders} folder${r.folders === 1 ? "" : "s"}`); setTimeout(render, 4000); } catch (e) { toast(e.message); }
 }
 async function ignoreUnseen(folder) { try { await api("/api/library/unseen/ignore", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({folder})}); render(); } catch (e) { toast(e.message); } }
+// Recently added: one sideways row (a carousel) per kind, shown on the Music and Subtitles tabs
+async function recentRail(kind) {
+  let r; try { r = await api("/api/library/recent"); } catch (e) { return ""; }
+  const list = (r && r[kind]) || [];
+  if (!list.length) return "";
+  const music = kind === "audio";
+  const id = "rail-" + kind;
+  return `<h2>Recently added</h2><div class="railwrap"><button class="pv" aria-label="Previous" onclick="railGo('${id}',-1)">‹</button><button class="nx" aria-label="Next" onclick="railGo('${id}',1)">›</button>
+    <div class="rail" id="${id}" tabindex="0" aria-label="Recently added ${music ? "music" : "movies and shows"}">${list.map(x => `<div>
+      <img class="${music ? "sq" : "poster"}" loading="lazy" decoding="async" alt="" onerror="this.style.visibility='hidden'" src="${thumb(x.thumb, 200)}">
+      <div class="cap">${esc(x.parent && music ? x.parent : x.title)}</div><div class="cap meta">${music ? esc(x.title) : esc(x.parent || x.year || "")} · ${ago(x.added_at)}</div></div>`).join("")}</div></div>`;
+}
+function railGo(id, dir) { const e = document.getElementById(id); if (e) e.scrollBy({left: dir * e.clientWidth * 0.8, behavior: "smooth"}); }
 async function scanLib(key) { try { await api(`/api/plex/scan?section=${encodeURIComponent(key)}`, {method:"POST"}); toast("Scan started"); render(); } catch (e) { toast(e.message); } }
 
 /* ---------------- MUSIC ---------------- */
@@ -448,7 +463,8 @@ async function renderMusic() {
   const skippedBox = musicFilter === "skipped" && skippedArtists.length
     ? `<h2>Skipped artists</h2><div class="stack"><div class="card"><div class="hint" style="margin-bottom:6px">These artists are not checked for new releases.</div>${skippedArtists.map(a =>
         `<div class="row" style="justify-content:space-between;gap:8px;padding:4px 0"><span>${esc(a)}</span><button class="small" data-a="${esc(a)}" onclick="unskipArtist(this.dataset.a)">Remove</button></div>`).join("")}</div></div><h2>Skipped releases</h2>` : "";
-  setView(my, `<div class="chips">${chips}</div>${skippedBox}<div class="stack relgrid">${rows.length ? rows.map(releaseCard).join("") : `<div class="empty">${empty}</div>`}</div>`);
+  const rail = await recentRail("audio");
+  setView(my, `${rail}<div class="chips">${chips}</div>${skippedBox}<div class="stack relgrid">${rows.length ? rows.map(releaseCard).join("") : `<div class="empty">${empty}</div>`}</div>`);
 }
 
 /* ---------------- DOWNLOADS ---------------- */
@@ -496,7 +512,7 @@ async function renderSubs() {
   $("#heading").textContent = "Subtitles";
   const btn = $("#actionBtn"); btn.hidden = false; btn.textContent = "Check now";
   btn.onclick = async () => { await api("/api/check-subtitles", {method:"POST"}); toast("Looking for missing subtitles…"); };
-  const [st, rows, gaps] = await Promise.all([api("/api/status"), api("/api/subtitles"), api("/api/library/subtitle-gaps").catch(() => null)]);
+  const [st, rows, gaps, rail] = await Promise.all([api("/api/status"), api("/api/subtitles"), api("/api/library/subtitle-gaps").catch(() => null), recentRail("video")]);
   const s = st.subtitles;
   const gapBox = gaps && gaps.total ? `<h2>Missing in Plex <span class="muted" style="font-weight:400">${gaps.missing.length} of ${gaps.total} movies</span></h2>
     <div class="card"><div class="actions" style="margin:0 0 6px"><button class="small" onclick="api('/api/library/scan-subtitles',{method:'POST'}).then(()=>{toast('Scanning Plex…');setTimeout(render,2500)})">${gaps.progress.running ? "Scanning " + gaps.progress.done + "/" + gaps.progress.total : "Rescan"}</button></div>
@@ -505,7 +521,7 @@ async function renderSubs() {
     : s.running ? "Searching…" : s.last_run ? `Last check ${esc(s.last_run)} · ${s.last_count} downloaded` : "");
   const label = {downloaded:"✓ Downloaded", not_found:"– None found yet", error:"✗ Error"};
   if (my !== seq) return;
-  $("#view").innerHTML = `${gapBox}<div class="stack">${rows.length ? rows.map(r => `<div class="card log">
+  $("#view").innerHTML = `${rail}${gapBox}<div class="stack">${rows.length ? rows.map(r => `<div class="card log">
       <div class="${r.status === "downloaded" ? "ok" : r.status === "error" ? "fail" : ""}">${label[r.status] || esc(r.status)} · ${esc(r.language)}</div>
       <div class="path">${esc(r.video.split(/[\\/]/).pop())}</div><div class="meta">${esc(r.at.replace("T", " "))} ${esc(r.message)}</div></div>`).join("")
     : `<div class="empty">No subtitle activity yet.</div>`}</div>`;

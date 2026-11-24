@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import psutil
 import requests
 import sys
 import threading
@@ -179,10 +180,15 @@ def _plex_library_loop(st: State):
                 releases.PLEX_ALBUMS = st.plex.music_albums()
             except Exception as e:
                 log.info("Couldn't read albums from Plex: %s", e)
-            try:
-                st.unseen.run()
-            except Exception:
-                log.exception("Check for new files crashed")
+            if n % 2 == 0:  # walks the library folders: every 6 hours, and only when the PC isn't busy
+                try:
+                    for _ in range(6):
+                        if psutil.cpu_percent(interval=1) < 50:
+                            break
+                        st.stop.wait(300)
+                    st.unseen.run()
+                except Exception:
+                    log.exception("Check for new files crashed")
             if n % 4 == 0:  # walks every movie: only every 12 hours
                 try:
                     st.subscan.run()
@@ -461,6 +467,22 @@ def subtitle_gaps():
 def scan_subtitles_now():
     threading.Thread(target=state.subscan.run, daemon=True).start()
     return {"ok": True}
+
+
+_RECENT = {"at": 0.0, "data": {"audio": [], "video": []}}
+
+
+@app.get("/api/library/recent")
+def library_recent():
+    """Recently added music and video for the carousels. Cached for 2 minutes so it costs Plex almost nothing."""
+    if time.time() - _RECENT["at"] > 120 and state.plex.configured:
+        try:
+            _RECENT["data"] = state.plex.recent_split(16)
+            _RECENT["at"] = time.time()
+        except Exception as e:
+            log.info("Couldn't read recently added from Plex: %s", e)
+            _RECENT["at"] = time.time() - 90  # Plex is down: try again in 30 seconds, not on every page view
+    return _RECENT["data"]
 
 
 @app.get("/api/library/unseen")

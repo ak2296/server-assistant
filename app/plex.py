@@ -176,6 +176,16 @@ class Plex:
                           "thumb": m.get("thumb") or m.get("parentThumb")})
         return items
 
+    def recent_split(self, n: int = 16) -> dict:
+        """Recently added music and video from one small request, for the two carousels."""
+        audio_t, video_t = {"album", "track", "artist"}, {"movie", "episode", "season", "show"}
+        out = {"audio": [], "video": []}
+        for it in self.recently_added(n * 5):
+            k = "audio" if it["type"] in audio_t else "video" if it["type"] in video_t else None
+            if k and len(out[k]) < n:
+                out[k].append(it)
+        return out
+
     def history(self, n: int = 80) -> list[dict]:
         names = self.accounts()
         rows = []
@@ -324,7 +334,7 @@ class Plex:
     def details(self) -> dict:
         """Slower data - refreshed less often."""
         out = {}
-        for key, fn in (("libraries", self.libraries), ("recent", self.recently_added), ("history", self.history),
+        for key, fn in (("libraries", self.libraries), ("history", self.history),
                         ("remote", self.remote_access), ("update", self.update)):
             try:
                 out[key] = fn()

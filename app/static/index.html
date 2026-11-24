@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f2326">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<title>Server Assistant</title>
+<style>
+  :root { --bg:#1f2326; --card:#282a2d; --card2:#33363a; --line:#3d4146; --text:#ececec; --muted:#a3a8ad; --accent:#e5a00d; --on-accent:#1b1300; --good:#6fcf97; --bad:#f26b4e; --blue:#6aa9dc; --rail:232px; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; padding-bottom:84px; }
+  header { padding:20px 16px 4px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  h1 { font-size:26px; margin:0; font-weight:700; }
+  h2 { font-size:18px; margin:22px 2px 10px; font-weight:700; color:var(--text); }
+  .sub { color:var(--muted); font-size:14px; padding:0 16px 10px; }
+  .warn { color:var(--accent); } .ok { color:var(--good); } .fail { color:var(--bad); } .muted { color:var(--muted); }
+  button { font:inherit; font-weight:600; border:0; border-radius:10px; padding:10px 16px; min-height:40px; cursor:pointer; color:var(--text); background:var(--card2); }
+  button:hover { background:#3b3f44; }
+  button.primary { background:var(--accent); color:var(--on-accent); }
+  button.primary:hover { background:#f0b429; }
+  button.small { padding:6px 12px; min-height:36px; font-size:14px; }
+  button.danger { background:transparent; color:var(--bad); box-shadow:inset 0 0 0 1px var(--line); }
+  button:disabled { opacity:.5; cursor:default; }
+  button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  textarea, input[type=text] { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px; font:inherit; font-size:14px; }
+  textarea { min-height:64px; resize:vertical; }
+  input[type=file] { color:var(--muted); font-size:13px; max-width:100%; }
+  main { padding:0 14px; }
+  .stack { display:flex; flex-direction:column; gap:12px; }
+  .card { background:var(--card); border-radius:16px; padding:14px; }
+  .row { display:flex; gap:14px; align-items:flex-start; }
+  .cover { width:84px; height:84px; border-radius:10px; background:var(--card2) center/cover no-repeat; flex-shrink:0; position:relative; }
+  .srctag { position:absolute; left:6px; bottom:6px; font-size:11px; font-weight:600; background:rgba(0,0,0,.55); color:#fff; border-radius:6px; padding:2px 7px; }
+  .poster { width:72px; height:108px; border-radius:10px; background:var(--card2) center/cover no-repeat; flex-shrink:0; }
+  .grow { flex:1; min-width:0; }
+  .small-t { color:var(--muted); font-size:14px; }
+  .title { font-weight:700; font-size:16px; overflow-wrap:anywhere; }
+  .meta { color:var(--muted); font-size:13px; }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; align-items:center; }
+  .actions a { color:var(--muted); font-size:13px; text-decoration:underline; padding:8px 4px; }
+  .actions a:hover { color:var(--accent); }
+  .empty { color:var(--muted); text-align:center; padding:34px 20px; }
+  .chips { display:flex; gap:8px; padding:0 2px 12px; flex-wrap:wrap; }
+  .chip { background:var(--card2); color:var(--text); border-radius:20px; padding:8px 16px; font-size:14px; min-height:40px; }
+  .chip.on { background:var(--accent); color:var(--on-accent); }
+  .bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin-top:8px; }
+  .bar > div { height:100%; background:var(--accent); border-radius:4px; }
+  .bar.blue > div { background:var(--blue); } .bar.hot > div { background:var(--bad); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .stat .big { font-size:24px; font-weight:700; }
+  .spark { width:100%; height:34px; display:block; margin-top:8px; }
+  .kv { display:flex; justify-content:space-between; gap:12px; font-size:14px; padding:4px 0; }
+  .kv span:first-child { color:var(--muted); }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .pill { display:inline-block; font-size:12px; padding:3px 8px; border-radius:8px; background:var(--card2); color:var(--muted); margin:3px 4px 0 0; }
+  .pill.t { background:#3d3112; color:var(--accent); }
+  .recent { display:grid; grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); gap:12px; }
+  .recent .poster { width:100%; height:auto; aspect-ratio:2/3; }
+  .recent .cap { font-size:13px; margin-top:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .addbox { margin-top:12px; display:flex; flex-direction:column; gap:10px; }
+  .toggle { display:flex; gap:8px; }
+  .log .path { color:var(--muted); font-size:13px; overflow-wrap:anywhere; }
+  .badge { background:var(--accent); color:var(--on-accent); border-radius:10px; padding:1px 8px; font-size:12px; margin-left:auto; font-weight:700; }
+  .field { margin-bottom:16px; }
+  .settings-grid > .card { margin-bottom:12px; }
+  .field label.l { display:block; font-size:14px; color:var(--muted); margin-bottom:6px; }
+  .hint { font-size:13px; color:var(--muted); margin-top:6px; }
+  [hidden] { display:none !important; }
+  .check { display:flex; gap:10px; align-items:center; font-size:15px; margin-bottom:10px; min-height:32px; }
+  .check input { width:20px; height:20px; accent-color:var(--accent); }
+  .seg { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+  .folderlist { font-size:14px; background:var(--bg); border-radius:10px; padding:10px 12px; overflow-wrap:anywhere; }
+  .folderlist div { padding:2px 0; }
+  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:20; display:flex; align-items:flex-end; justify-content:center; }
+  .overlay .sheet { background:var(--card); width:100%; max-width:640px; max-height:80vh; border-radius:18px 18px 0 0; padding:16px; display:flex; flex-direction:column; }
+  .overlay .items { overflow:auto; flex:1; margin:8px 0; }
+  .overlay .items button { display:block; width:100%; text-align:left; background:none; border-bottom:1px solid var(--line); border-radius:0; padding:12px 6px; overflow-wrap:anywhere; }
+  .toast { position:fixed; left:12px; right:12px; bottom:92px; background:var(--card2); border:1px solid var(--line); padding:12px 16px; border-radius:12px; font-size:14px; z-index:30; }
+  /* navigation: bottom bar on phones, left rail on wide screens */
+  nav { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--line); display:flex; padding:4px 4px calc(8px + env(safe-area-inset-bottom)); z-index:5; }
+  nav .brand, nav .railstatus { display:none; }
+  nav button { flex:1; background:none; border-radius:10px; padding:6px 2px; min-height:56px; color:var(--muted); font-size:12px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; position:relative; }
+  nav button:hover { background:none; color:var(--text); }
+  nav button.on { color:var(--accent); }
+  nav button svg { width:22px; height:22px; }
+  nav button .badge { position:absolute; top:2px; left:calc(50% + 6px); margin:0; font-size:11px; padding:0 6px; }
+  @media (min-width: 900px) {
+    body { padding-bottom:40px; padding-left:var(--rail); }
+    nav { top:0; bottom:0; right:auto; width:var(--rail); flex-direction:column; gap:6px; padding:22px 14px 18px; border-top:0; background:var(--card); }
+    nav .brand { display:flex; align-items:center; gap:10px; padding:0 8px 18px; font-weight:700; font-size:16px; }
+    nav .brand b { width:34px; height:34px; border-radius:9px; background:var(--accent); color:var(--on-accent); display:flex; align-items:center; justify-content:center; font-size:15px; }
+    nav button { flex:none; flex-direction:row; justify-content:flex-start; gap:12px; min-height:44px; padding:0 14px; font-size:15px; }
+    nav button:hover { background:var(--card2); }
+    nav button.on { background:var(--card2); }
+    nav button .badge { position:static; margin-left:auto; }
+    nav .railstatus { display:block; margin-top:auto; background:var(--bg); border-radius:12px; padding:12px 14px; font-size:13px; line-height:1.5; color:var(--muted); }
+    header, .sub, main { max-width:1120px; margin-left:auto; margin-right:auto; }
+    header { padding:30px 40px 6px; } .sub { padding:0 40px 12px; } main { padding:0 40px; }
+    h1 { font-size:30px; }
+    .grid2 { grid-template-columns:repeat(4, 1fr); }
+    .stack.cols { display:grid; grid-template-columns:1fr 1fr; }
+    .recent { grid-template-columns:repeat(auto-fill, minmax(130px,1fr)); }
+    .settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; }
+    .settings-grid > .card { margin-bottom:0; }
+    .overlay { align-items:center; } .overlay .sheet { border-radius:18px; }
+    .toast { left:auto; right:24px; bottom:24px; width:360px; }
+    /* release tiles: big covers in a grid */
+    .relgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px,1fr)); gap:14px; }
+    .rel .row { flex-direction:column; gap:10px; }
+    .rel .cover { width:100%; height:auto; aspect-ratio:1/1; }
+    .rel.open { grid-column:span 2; }
+    .poster.big { width:104px; height:156px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="heading">Server</h1>
+  <div style="display:flex;gap:6px"><button class="small" id="actionBtn" hidden></button><button class="small" id="appGear" hidden title="Change server">⚙</button></div>
+</header>
+<div class="sub" id="sub"></div>
+<main id="view"></main>
+<div class="toast" id="toast" hidden></div>
+
+<nav aria-label="Main">
+  <div class="brand"><b>SA</b>Server Assistant</div>
+  <button data-tab="server" class="on"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg><span>Server</span></button>
+  <button data-tab="music"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg><span>Music</span><span class="badge" id="newCount" hidden></span></button>
+  <button data-tab="downloads"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg><span>Downloads</span><span class="badge" id="dlCount" hidden></span></button>
+  <button data-tab="subs"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h4M13 10h4M7 14h6"/></svg><span>Subtitles</span></button>
+  <button data-tab="settings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Settings</span></button>
+  <div class="railstatus" id="railStatus">Server Assistant</div>
+</nav>
+<div id="picker" class="overlay" hidden></div>
+
+<script>
+let showUnmatched = false;
+let tab = "server", musicFilter = "new", openAdd = null, confirmStop = null;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const api = async (p, opt) => { const r = await fetch(p, opt); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.detail || r.statusText); return j; };
+const toast = (msg) => { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => t.hidden = true, 3500); };
+const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+function bytes(n, d = 1) { if (n == null) return "–"; const u = ["B","KB","MB","GB","TB"]; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return n.toFixed(i < 2 ? 0 : d) + " " + u[i]; }
+const rate = n => bytes(n) + "/s";
+function dur(s) { s = Math.round(s); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; }
+function clock(ms) { if (ms == null) return ""; const s = Math.floor(ms / 1000); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); }
+function ago(ts) { const s = Date.now() / 1000 - ts; return s < 3600 ? Math.max(1, Math.round(s / 60)) + " min ago" : s < 86400 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " d ago"; }
+function spark(vals, max, color = "var(--accent)") {
+  if (!vals || vals.length < 2) return "";
+  const m = max || Math.max(...vals, 1), w = 100, h = 30;
+  const pts = vals.map((v, i) => `${(i / (vals.length - 1) * w).toFixed(1)},${(h - v / m * h).toFixed(1)}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
+}
+const barCls = p => p >= 90 ? "bar hot" : "bar";
+const thumb = (p, w = 240) => p ? `/api/plex/thumb?w=${w}&path=${encodeURIComponent(p)}` : "";
+
+/* ---------------- SERVER ---------------- */
+async function renderServer() {
+  const my = seq;
+  $("#heading").textContent = "Server";
+  const btn = $("#actionBtn"); btn.hidden = false; btn.textContent = "Scan libraries";
+  btn.onclick = async () => { try { await api("/api/plex/scan", {method:"POST"}); toast("Plex is scanning your libraries"); } catch (e) { toast(e.message); } };
+  const [d, sum] = await Promise.all([api("/api/server"), api("/api/summary").catch(() => null)]);
+  const s = d.system, p = d.plex;
+  let h = "";
+  if (sum) h += `<h2>This week</h2><div class="card"><div class="kv" style="gap:14px;flex-wrap:wrap">
+      <span><b style="color:var(--text)">${sum.plays}</b> plays by ${sum.viewers} ${sum.viewers === 1 ? "person" : "people"}</span><span><b style="color:var(--text)">${sum.added}</b> added to Plex</span>
+      <span><b style="color:var(--text)">${sum.subtitles}</b> subtitles</span><span><b style="color:var(--text)">${sum.releases}</b> new releases</span><span><b style="color:var(--text)">${sum.sorted}</b> files sorted</span></div>
+      ${sum.tightest_drive ? `<div class="hint" style="margin-top:6px">Tightest drive ${esc(sum.tightest_drive.mount)}: ${bytes(sum.tightest_drive.free)} free of ${bytes(sum.tightest_drive.total)}</div>` : ""}</div>`;
+
+  // Plex status line
+  if (!p.configured) setSub(my, `<span class="warn">Plex not connected: no token found. Add it in config.toml.</span>`);
+  else if (!p.online) setSub(my, `<span class="dot" style="background:var(--bad)"></span><span class="fail">Plex is not responding</span> <span class="muted">${esc(p.error || "")}</span>`);
+  else {
+    const sv = p.server, ra = p.remote || {};
+    const remote = ra.state === "mapped" ? `<span class="ok">Remote access OK</span>` : ra.state ? `<span class="warn">Remote access: ${esc(ra.state)}</span>` : "";
+    setSub(my, `<span class="dot" style="background:var(--good)"></span><b>${esc(sv.name)}</b> · Plex ${esc((sv.version || "").split("-")[0])}${sv.plex_pass ? " · Plex Pass" : ""}<br>${remote}${p.update && p.update.available ? ` · <span class="warn">Update ${esc(p.update.version.split("-")[0])} available</span>` : ""}`);
+  }
+
+  $("#railStatus").innerHTML = p.online ? `<span class="ok">●</span> Plex is running<br>Up ${dur(s.uptime)}` : `<span class="fail">●</span> Plex is not responding`;
+  // Now playing
+  if (p.online) {
+    const ss = p.sessions || [];
+    h += `<h2>Now playing ${ss.length ? `· ${ss.length}` : ""}</h2>`;
+    h += ss.length ? `<div class="stack cols">${ss.map(x => {
+      const icon = x.state === "paused" ? "❚❚" : x.state === "buffering" ? "⏳" : "▶";
+      const stop = confirmStop === x.session_id
+        ? `<button class="small danger" onclick="stopStream('${esc(x.session_id)}')">Tap again to stop</button>`
+        : `<button class="small" onclick="confirmStop='${esc(x.session_id)}';render()">Stop</button>`;
+      return `<div class="card"><div class="row">
+        <div class="poster big" style="background-image:url('${thumb(x.thumb, 240)}')"></div>
+        <div class="grow">
+          <div class="title">${icon} ${esc(x.title)}</div>
+          <div class="small-t">${esc(x.subtitle)}</div>
+          <div class="meta">${esc(x.user)} · ${esc(x.player)}${x.platform ? " (" + esc(x.platform) + ")" : ""}</div>
+          <div><span class="pill ${x.decision.startsWith("Trans") ? "t" : ""}">${esc(x.decision)}${x.transcode_speed ? " " + Number(x.transcode_speed).toFixed(1) + "×" : ""}</span>${x.quality ? `<span class="pill">${esc(x.quality)}</span>` : ""}<span class="pill">${x.local ? "Home" : "Remote"}</span>${x.bandwidth_kbps ? `<span class="pill">${(x.bandwidth_kbps / 1000).toFixed(1)} Mbps</span>` : ""}</div>
+          <div class="bar"><div style="width:${x.progress.toFixed(1)}%"></div></div>
+          <div class="meta" style="display:flex;justify-content:space-between;margin-top:3px"><span>${clock(x.offset)} / ${clock(x.duration)}</span>${x.session_id ? stop : ""}</div>
+        </div></div></div>`; }).join("")}</div>` : `<div class="card muted">Nobody is watching right now.</div>`;
+
+    const acts = p.activities || [];
+    if (acts.length) h += `<h2>Plex is busy with</h2><div class="card">${acts.map(a => `<div style="margin-bottom:8px"><div class="kv"><span>${esc(a.title)}</span><span>${a.progress ?? ""}%</span></div>${a.subtitle ? `<div class="meta">${esc(a.subtitle)}</div>` : ""}<div class="bar blue"><div style="width:${a.progress || 0}%"></div></div></div>`).join("")}</div>`;
+  }
+
+  // PC health
+  const c = s.cpu, r = s.ram, hi = s.history;
+  h += `<h2>PC</h2><div class="grid2">
+    <div class="card stat"><div class="small-t">CPU</div><div class="big">${Math.round(c.percent)}%</div><div class="meta">${c.cores} cores / ${c.threads} threads${c.temp ? ` · ${Math.round(c.temp)}°C` : ""}</div>${spark(hi.cpu, 100)}</div>
+    <div class="card stat"><div class="small-t">RAM</div><div class="big">${Math.round(r.percent)}%</div><div class="meta">${bytes(r.used)} of ${bytes(r.total)}</div>${spark(hi.ram, 100, "var(--blue)")}</div>
+    <div class="card stat"><div class="small-t">Network</div><div class="big" style="font-size:17px">↓ ${rate(s.net.down)}<br>↑ ${rate(s.net.up)}</div>${spark(hi.net_up, 0, "var(--good)")}</div>
+    <div class="card stat"><div class="small-t">Disk activity</div><div class="big" style="font-size:17px">R ${rate(s.disk_io.read)}<br>W ${rate(s.disk_io.write)}</div>${spark(hi.disk_read, 0, "var(--blue)")}</div>
+  </div>
+  <div class="card" style="margin-top:10px">
+    <div class="kv"><span>Uptime</span><span>${dur(s.uptime)}</span></div>
+    ${s.plex_processes.map(x => `<div class="kv"><span>${esc(x.name.replace(".exe", ""))}</span><span>${x.cpu.toFixed(1)}% CPU · ${bytes(x.ram)}</span></div>`).join("")}
+    ${s.gpu.map(g => `<div class="kv"><span>${esc(g.name)}</span><span>${g.util ?? "–"}% · ${g.temp ?? "–"}°C${g.encoder_sessions ? ` · ${g.encoder_sessions} encodes` : ""}</span></div>`).join("")}
+    ${r.swap_total ? `<div class="kv"><span>Page file</span><span>${bytes(r.swap_used)} of ${bytes(r.swap_total)}</span></div>` : ""}
+  </div>`;
+
+  // Drives
+  h += `<h2>Storage</h2><div class="card">${s.drives.map(x => `<div style="margin-bottom:10px">
+      <div class="kv"><span style="color:var(--text);font-weight:600">${esc(x.mount)}</span><span>${bytes(x.free)} free of ${bytes(x.total)}</span></div>
+      <div class="${barCls(x.percent)}"><div style="width:${x.percent}%"></div></div></div>`).join("") || `<span class="muted">No drives found</span>`}</div>`;
+
+  if (p.online) {
+    // Libraries
+    const libs = p.libraries || [];
+    if (libs.length) h += `<h2>Libraries</h2><div class="card">${libs.map(l => `<div class="kv" style="padding:6px 0">
+        <span style="color:var(--text)">${esc(l.title)}${l.refreshing ? ` <span class="warn">scanning…</span>` : ""}</span>
+        <span>${l.count ?? "–"} ${esc(l.unit || "")}${l.count2 != null ? ` · ${l.count2} ${esc(l.unit2)}` : ""}
+        <button class="small" style="margin-left:6px" onclick="scanLib('${esc(l.key)}')">Scan</button></span></div>`).join("")}</div>`;
+    // Recently added
+    const rec = p.recent || [];
+    if (rec.length) h += `<h2>Recently added</h2><div class="recent">${rec.map(x => `<div>
+        <div class="poster" style="background-image:url('${thumb(x.thumb, 200)}')"></div>
+        <div class="cap">${esc(x.parent || x.title)}</div><div class="cap meta">${x.parent ? esc(x.title) : esc(x.year || "")} · ${ago(x.added_at)}</div></div>`).join("")}</div>`;
+    // History
+    const hist = p.history || [];
+    if (hist.length) h += `<h2>Recently watched</h2><div class="card">${hist.map(x => `<div class="kv" style="padding:5px 0;gap:10px">
+        <span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.parent ? x.parent + " – " + x.title : x.title)}</span>
+        <span style="white-space:nowrap">${esc(x.user)} · ${ago(x.viewed_at)}</span></div>`).join("")}</div>`;
+  }
+  setView(my, h);
+}
+async function stopStream(id) {
+  confirmStop = null;
+  try { await api(`/api/plex/sessions/${encodeURIComponent(id)}/stop`, {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"}); toast("Stream stopped"); }
+  catch (e) { toast(e.message); }
+  render();
+}
+async function scanLib(key) { try { await api(`/api/plex/scan?section=${encodeURIComponent(key)}`, {method:"POST"}); toast("Scan started"); render(); } catch (e) { toast(e.message); } }
+
+/* ---------------- MUSIC ---------------- */
+function addBox(id, mbid = "", showType = false) {
+  return `<form class="addbox" onsubmit="submitAdd(event, '${mbid}')">
+    <textarea name="links" placeholder="Paste magnet link(s) or .torrent URL(s), one per line"></textarea>
+    <input type="file" name="files" accept=".torrent,application/x-bittorrent" multiple>
+    ${showType ? `<div class="toggle"><label class="chip on" id="tMusic"><input type="radio" name="music" value="true" checked hidden onchange="typeSel(this)">Music (auto-sort)</label>
+      <label class="chip" id="tOther"><input type="radio" name="music" value="false" hidden onchange="typeSel(this)">Other</label></div>` : `<input type="hidden" name="music" value="true">`}
+    <div class="actions" style="margin-top:0"><button class="primary small" type="submit">Download</button>
+      ${id ? `<button class="small" type="button" onclick="openAdd=null;render()">Cancel</button>` : ""}</div>
+  </form>`;
+}
+function typeSel(el) { $("#tMusic").classList.toggle("on", el.value === "true"); $("#tOther").classList.toggle("on", el.value === "false"); }
+async function submitAdd(ev, mbid) {
+  ev.preventDefault();
+  const fd = new FormData(ev.target);
+  if (mbid) fd.append("mbid", mbid);
+  if (!fd.get("links").trim() && !fd.getAll("files").some(f => f.size)) { toast("Paste a link or choose a .torrent file"); return; }
+  const b = ev.target.querySelector("button[type=submit]"); b.disabled = true;
+  try { await api("/api/downloads", {method:"POST", body:fd}); toast("Download started"); openAdd = null; ev.target.reset(); render(); }
+  catch (e) { toast(e.message); b.disabled = false; }
+}
+function releaseCard(r) {
+  const cover = r.cover || `https://coverartarchive.org/release-group/${r.mbid}/front-250`;
+  const info = r.url || `https://musicbrainz.org/release-group/${r.mbid}`;
+  let actions = "";
+  if (r.status === "new" || r.status === "wanted" || r.status === "gap") actions = `<button class="primary small" onclick="openAdd='${r.mbid}';render()">Download</button>
+      ${r.status !== "wanted" ? `<button class="small" onclick="setStatus('${r.mbid}','wanted')">Later</button>` : `<button class="small" onclick="setStatus('${r.mbid}','got')">Got it</button>`}
+      <button class="small" onclick="setStatus('${r.mbid}','skipped')">Skip</button>
+      <a href="#" onclick="skipArtist(this.dataset.a); return false" data-a="${esc(r.artist)}">Skip this artist</a>
+      <a href="${esc(info)}" target="_blank" rel="noopener">Info</a>`;
+  if (r.status === "skipped") actions = `<button class="small" onclick="setStatus('${r.mbid}','new')">Undo skip</button>`;
+  return `<div class="card rel ${openAdd === r.mbid ? "open" : ""}"><div class="row">
+      <div class="cover" style="background-image:url('${esc(cover)}')">${r.src ? `<span class="srctag">${({musicbrainz:"MusicBrainz",deezer:"Deezer",itunes:"iTunes"})[r.src] || ""}</span>` : ""}</div>
+      <div class="grow">
+        <div class="small-t">${esc(r.artist)}</div>
+        <div class="title">${esc(r.title)}</div>
+        <div class="meta">${esc(r.type)} · ${esc(r.date)}</div>
+        <div class="actions">${actions}</div>
+      </div></div>${openAdd === r.mbid ? addBox(r.mbid, r.mbid) : ""}</div>`;
+}
+async function skipArtist(name) {
+  await api("/api/skipped-artists", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({artist:name})});
+  toast(`${name} skipped. Remove them under Music → Skipped to bring them back.`); render();
+}
+async function unskipArtist(name) {
+  await api("/api/skipped-artists/" + encodeURIComponent(name), {method:"DELETE"});
+  toast(`${name} is back on the list.`); render();
+}
+async function setStatus(mbid, status) {
+  await api(`/api/releases/${mbid}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({status})});
+  render();
+}
+async function renderMusic() {
+  const my = seq;
+  $("#heading").textContent = "Music";
+  const btn = $("#actionBtn"); btn.hidden = false; btn.textContent = "Check now";
+  btn.onclick = async () => { await api("/api/check-releases", {method:"POST"}); toast("Checking for new releases…"); setTimeout(render, 1500); };
+  const [st, rows, skippedArtists] = await Promise.all([api("/api/status"), api(`/api/releases?status=${musicFilter}`), api("/api/skipped-artists")]);
+  const rc = st.release_check;
+  let sub = st.library_found ? `${st.artists} artists in your library` : `<span class="warn">No music folder found. Check Settings → Music folders.</span>`;
+  if (rc.running) sub += ` · checking ${rc.done}/${rc.total}${rc.current ? " (" + esc(rc.current) + ")" : ""}…`;
+  else if (rc.last_run) sub += ` · last check ${esc(rc.last_run)}`;
+  const un = st.unmatched_artists;  // hidden by default; one tap shows the list
+  if (un.length) sub += ` · <a href="#" class="muted" onclick="showUnmatched = !showUnmatched; render(); return false">${un.length} not matched ${showUnmatched ? "▲" : "▼"}</a>`
+    + (showUnmatched ? `<br><span class="muted">No match on any music source for: ${un.map(esc).join(", ")}</span>` : "");
+  setSub(my, sub);
+  const chips = [["new", "New"], ["wanted", "Later"], ["gap", "Missing albums"], ["skipped", "Skipped"]]
+    .map(([k, l]) => `<button class="chip ${musicFilter === k ? "on" : ""}" onclick="musicFilter='${k}';openAdd=null;render()">${l}${(k === "new" || k === "gap") && st.release_counts[k] ? " " + st.release_counts[k] : ""}</button>`).join("");
+  const empty = {new:"No new releases right now.", wanted:"Nothing saved for later.", skipped:"Nothing skipped.", gap:"No missing albums found. Turn this on in Settings → Music."}[musicFilter];
+  const skippedBox = musicFilter === "skipped" && skippedArtists.length
+    ? `<h2>Skipped artists</h2><div class="stack"><div class="card"><div class="hint" style="margin-bottom:6px">These artists are not checked for new releases.</div>${skippedArtists.map(a =>
+        `<div class="row" style="justify-content:space-between;gap:8px;padding:4px 0"><span>${esc(a)}</span><button class="small" data-a="${esc(a)}" onclick="unskipArtist(this.dataset.a)">Remove</button></div>`).join("")}</div></div><h2>Skipped releases</h2>` : "";
+  setView(my, `<div class="chips">${chips}</div>${skippedBox}<div class="stack relgrid">${rows.length ? rows.map(releaseCard).join("") : `<div class="empty">${empty}</div>`}</div>`);
+}
+
+/* ---------------- DOWNLOADS ---------------- */
+async function renderDownloads() {
+  const my = seq;
+  $("#heading").textContent = "Downloads";
+  $("#actionBtn").hidden = true;
+  const [dl, sorted] = await Promise.all([api("/api/downloads"), api("/api/sorted?limit=30")]);
+  setSub(my, dl.enabled ? (dl.error ? `<span class="fail">Downloader: ${esc(dl.error)}</span>` : "Finished torrents stop right away (no seeding). Music is moved into your library.")
+    : `<span class="warn">Downloading is switched off. Turn it on in Settings.</span>`);
+  let h = "";
+  const ts = dl.torrents || [];
+  if (ts.length) h += `<h2>Downloading</h2><div class="stack">${ts.map(t => `<div class="card">
+      <div class="title" style="font-size:14px">${esc(t.name)}</div>
+      <div class="bar ${t.music ? "" : "blue"}"><div style="width:${t.progress.toFixed(1)}%"></div></div>
+      <div class="meta" style="display:flex;justify-content:space-between;margin-top:4px;gap:8px">
+        <span>${t.progress.toFixed(0)}%${t.size ? " of " + bytes(t.size) : ""} · ${esc(({metaDL:"finding the download", downloading:"downloading", checkingDL:"checking files", checkingResumeData:"checking files", uploading:"finishing", error:"error"})[t.state] || t.state)}${t.dlspeed ? " · ↓ " + rate(t.dlspeed) : ""}${t.eta && t.eta < 8640000 ? " · " + dur(t.eta) + " left" : ""}${t.music ? " · music" : ""}</span>
+        <button class="small danger" onclick="cancelDl('${t.hash}')">Cancel</button></div></div>`).join("")}</div>`;
+  h += `<h2>Recently sorted</h2><div class="stack">${sorted.length ? sorted.map(r => `<div class="card log">
+      <div class="${r.ok ? "ok" : "fail"}">${r.ok ? "✓" : "✗"} ${esc(r.message)}</div>
+      <div class="path">${r.dest ? "→ " + esc(r.dest) : esc(r.source)}</div><div class="meta">${esc(r.at.replace("T", " "))}</div></div>`).join("")
+    : `<div class="empty">Nothing sorted yet.</div>`}</div>`;
+  // build the add form once, then only refresh the lists (so typing/picking a file isn't wiped)
+  if (my !== seq) return;
+  if (!$("#dlRest")) $("#view").innerHTML = (dl.enabled ? `<div class="card" id="addForm"><div class="title" style="font-size:15px">Add a download</div>${addBox("", "", true)}</div>` : "") + `<div id="dlRest"></div>`;
+  $("#dlRest").innerHTML = h;
+  const n = ts.length; $("#dlCount").hidden = !n; $("#dlCount").textContent = n;
+}
+async function cancelDl(hash) { await api(`/api/downloads/${hash}`, {method:"DELETE"}); toast("Download cancelled"); render(); }
+
+/* ---------------- SUBTITLES ---------------- */
+async function renderSubs() {
+  const my = seq;
+  $("#heading").textContent = "Subtitles";
+  const btn = $("#actionBtn"); btn.hidden = false; btn.textContent = "Check now";
+  btn.onclick = async () => { await api("/api/check-subtitles", {method:"POST"}); toast("Looking for missing subtitles…"); };
+  const [st, rows, gaps] = await Promise.all([api("/api/status"), api("/api/subtitles"), api("/api/library/subtitle-gaps").catch(() => null)]);
+  const s = st.subtitles;
+  const gapBox = gaps && gaps.total ? `<h2>Missing in Plex <span class="muted" style="font-weight:400">${gaps.missing.length} of ${gaps.total} movies</span></h2>
+    <div class="card"><div class="actions" style="margin:0 0 6px"><button class="small" onclick="api('/api/library/scan-subtitles',{method:'POST'}).then(()=>{toast('Scanning Plex…');setTimeout(render,2500)})">${gaps.progress.running ? "Scanning " + gaps.progress.done + "/" + gaps.progress.total : "Rescan"}</button></div>
+      ${gaps.missing.length ? gaps.missing.slice(0, 60).map(g => `<div class="kv" style="padding:4px 0;gap:10px"><span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.title)}${g.year ? " (" + g.year + ")" : ""}</span><span style="white-space:nowrap">needs ${esc(g.missing.join(", "))}</span></div>`).join("") + (gaps.missing.length > 60 ? `<div class="hint">+${gaps.missing.length - 60} more</div>` : "") : `<div class="ok">Every movie has the languages you want.</div>`}</div><h2>Activity</h2>` : "";
+  setSub(my, !s.enabled ? `<span class="warn">Subtitles are off. Turn them on in Settings.</span>`
+    : s.running ? "Searching…" : s.last_run ? `Last check ${esc(s.last_run)} · ${s.last_count} downloaded` : "");
+  const label = {downloaded:"✓ Downloaded", not_found:"– None found yet", error:"✗ Error"};
+  if (my !== seq) return;
+  $("#view").innerHTML = `${gapBox}<div class="stack">${rows.length ? rows.map(r => `<div class="card log">
+      <div class="${r.status === "downloaded" ? "ok" : r.status === "error" ? "fail" : ""}">${label[r.status] || esc(r.status)} · ${esc(r.language)}</div>
+      <div class="path">${esc(r.video.split(/[\\/]/).pop())}</div><div class="meta">${esc(r.at.replace("T", " "))} ${esc(r.message)}</div></div>`).join("")
+    : `<div class="empty">No subtitle activity yet.</div>`}</div>`;
+}
+
+/* ---------------- SETTINGS ---------------- */
+let settings = null;
+const val = id => document.getElementById(id);
+function folderBlock(key, title, info, plexList, plexLabel) {
+  const auto = info.mode === "auto";
+  return `<div class="card"><div class="title" style="font-size:15px;margin-bottom:8px">${title}</div>
+    <div class="seg">
+      <label class="chip ${auto ? "on" : ""}"><input type="radio" name="${key}Mode" value="auto" ${auto ? "checked" : ""} hidden onchange="modeSel('${key}')">From Plex (automatic)</label>
+      <label class="chip ${auto ? "" : "on"}"><input type="radio" name="${key}Mode" value="custom" ${auto ? "" : "checked"} hidden onchange="modeSel('${key}')">Choose myself</label>
+    </div>
+    <div id="${key}Auto" ${auto ? "" : "hidden"}>
+      <div class="folderlist">${plexList.length ? plexList.map(f => `<div>📁 ${esc(f)}</div>`).join("") : `<span class="warn">Plex has no ${plexLabel} library${settings.plex_connected ? "" : " (Plex not connected)"}.</span>`}</div>
+      <div class="hint">These are the folders your Plex ${plexLabel} libraries use. Add a folder in Plex and it's picked up here automatically.</div>
+    </div>
+    <div id="${key}Custom" ${auto ? "hidden" : ""}>
+      <textarea id="${key}Folders" placeholder="One folder per line, e.g. D:\\Media\\Music">${esc(info.custom.join("\n"))}</textarea>
+      <button class="small" type="button" style="margin-top:6px" onclick="openPicker('${key}Folders')">Browse…</button>
+    </div></div>`;
+}
+function modeSel(key) {
+  const custom = document.querySelector(`input[name=${key}Mode]:checked`).value === "custom";
+  val(key + "Auto").hidden = custom; val(key + "Custom").hidden = !custom;
+  document.querySelectorAll(`input[name=${key}Mode]`).forEach(r => r.parentElement.classList.toggle("on", r.checked));
+}
+async function renderSettings() {
+  const my = seq;
+  $("#heading").textContent = "Settings";
+  $("#actionBtn").hidden = true;
+  setSub(my, "Changes apply right away. Folders are paths on the server PC.");
+  if (val("settingsForm")) return;  // don't overwrite while editing
+  settings = await api("/api/settings");
+  const S = settings, m = S.music, sb = S.subtitles, q = S.qbittorrent, px = S.plex;
+  const types = ["Album", "Single", "EP"];
+  const inApp = window.Android || matchMedia("(display-mode: standalone)").matches || /--app/.test(navigator.userAgent);
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  const installCard = window.Android ? "" : `<div class="card" style="margin-bottom:10px"><div class="title" style="font-size:15px">Get the app</div>
+      <div class="actions">
+        ${isAndroid ? `<a class="primary" href="/app.apk" style="background:var(--accent);color:#1a1300;border-radius:10px;padding:8px 14px;font-weight:600">Download Android app</a>`
+                    : `<a href="/install-pc-app.bat" style="background:var(--accent);color:#1a1300;border-radius:10px;padding:8px 14px;font-weight:600">Install on this PC</a>
+                       <a href="/app.apk">Android app (APK)</a>`}
+      </div>
+      <div class="hint" style="font-size:12px;color:var(--muted);margin-top:6px">${isAndroid ? "Open the downloaded file and allow installing from your browser when asked."
+        : "Run the downloaded file. It adds Server Assistant to your desktop and Start menu, and the shortcut finds the server by itself even if its IP address changes. If Windows warns about it, choose \"More info\" → \"Run anyway\"."}</div>
+      ${window.Android ? "" : `<div class="hint" style="font-size:12px;color:var(--muted);margin-top:8px">No need to remember an IP address. On this network the server also answers to
+        <b>serverassistant.local</b>. <a href="/open-server-assistant.html">Download "Open Server Assistant"</a>, a page that finds the server wherever it is.</div>`}</div>`;
+  const subs = await api("/api/subsources");
+  srcList = subs.sources; srcPresets = subs.presets;
+  if (my !== seq) return;
+  $("#view").innerHTML = installCard + `<form id="settingsForm" onsubmit="saveSettings(event)"><div class="settings-grid">
+    ${folderBlock("music", "Music folders", m, S.plex_folders.artist, "music")}
+    ${folderBlock("movies", "Movie folders (for subtitles)", S.movies, S.plex_folders.movie, "movie")}
+    <div class="card"><div class="title" style="font-size:15px;margin-bottom:8px">Music downloads</div>
+      <div class="field"><label class="l">Folders to watch for music you download yourself (optional)</label>
+        <textarea id="dlFolders" placeholder="e.g. C:\\Users\\you\\Downloads\\Music">${esc(m.download_folders.join("\n"))}</textarea>
+        <button class="small" type="button" style="margin-top:6px" onclick="openPicker('dlFolders')">Browse…</button>
+        <div class="hint">Anything with music that lands here is moved into the right artist folder.</div></div>
+      <div class="field"><label class="l">Where to look for new releases</label>
+        ${[["musicbrainz","MusicBrainz"],["deezer","Deezer"],["itunes","iTunes / Apple Music"]].map(([k,n]) => `<label class="check"><input type="checkbox" class="msrc" value="${k}" ${m.sources.includes(k) ? "checked" : ""}>${n}</label>`).join("")}
+        <div class="hint">All three are free and need no login. A release found on any of them is listed once.</div></div>
+      <div class="field"><label class="l">Show new releases from the last (days)</label><input type="text" id="lookback" value="${esc(m.lookback_days)}" inputmode="numeric"></div>
+      <label class="check"><input type="checkbox" id="catGaps" ${m.catalog_gaps ? "checked" : ""}>Also list older albums I don't have yet (under Missing albums)</label>
+      <div class="field"><label class="l">Release types</label>${types.map(t => `<label class="check"><input type="checkbox" class="rtype" value="${t}" ${m.release_types.includes(t) ? "checked" : ""}>${t}</label>`).join("")}</div>
+    </div>
+    <div class="card"><div class="title" style="font-size:15px;margin-bottom:8px">Downloads</div>
+      <div class="seg"><label class="check"><input type="radio" name="qEngine" value="builtin" ${q.engine !== "qbittorrent" ? "checked" : ""}>Built-in downloader (recommended)</label>
+        <label class="check"><input type="radio" name="qEngine" value="qbittorrent" ${q.engine === "qbittorrent" ? "checked" : ""}>qBittorrent</label></div>
+      <div class="hint" style="margin:0 0 12px">The built-in downloader needs nothing else installed. Paste a magnet link or choose a .torrent file on the Downloads tab. Finished downloads stop sharing straight away.</div>
+      <div class="field"><label class="l">Music downloads go to (empty = the app's own folder, then sorted into your library)</label><input type="text" id="qSave" value="${esc(q.save_path)}">
+        <button class="small" type="button" style="margin-top:6px" onclick="openPicker('qSave', true)">Browse…</button></div>
+      <div class="field"><label class="l">Upload cap while downloading (KB/s, 0 = none)</label><input type="text" id="qUp" value="${esc(q.upload_limit_kb)}" inputmode="numeric"></div>
+      <div class="hint" style="margin:10px 0 6px"><b>qBittorrent settings</b> (only used if you choose qBittorrent)</div>
+      <label class="check"><input type="checkbox" id="qEnabled" ${q.enabled ? "checked" : ""}>Use qBittorrent for downloads</label>
+      <div class="field"><label class="l">Web UI address</label><input type="text" id="qUrl" value="${esc(q.url)}"></div>
+      <div class="field"><label class="l">Username</label><input type="text" id="qUser" value="${esc(q.username)}" autocomplete="off"></div>
+      <div class="field"><label class="l">Password</label><input type="text" id="qPass" value="${esc(q.password)}" autocomplete="off" style="-webkit-text-security:disc"></div>
+    </div>
+    <div class="card"><div class="title" style="font-size:15px;margin-bottom:8px">Subtitles</div>
+      <label class="check"><input type="checkbox" id="sEnabled" ${sb.enabled ? "checked" : ""}>Download missing subtitles for movies</label>
+      <div class="field"><label class="l">Languages (codes)</label><input type="text" id="sLang" value="${esc(sb.languages.join(", "))}"><div class="hint">en = English, fa = Persian. Each movie gets one subtitle per language.</div></div>
+      <div class="hint">Where to look is set under <b>Subtitle sources</b> below.</div>
+    </div>
+    <div class="card"><div class="title" style="font-size:15px;margin-bottom:8px">Plex</div>
+      <div class="field"><label class="l">Plex address</label><input type="text" id="pUrl" value="${esc(px.url)}"></div>
+      <div class="field"><label class="l">Token</label><input type="text" id="pToken" value="${esc(px.token)}" placeholder="${px.auto_token ? "Found automatically" : "Leave empty to find it automatically"}" autocomplete="off" style="-webkit-text-security:disc"></div>
+      <div class="field"><label class="l">Drives to show on the Server tab (empty = all)</label><input type="text" id="drives" value="${esc(S.system.drives.join(", "))}" placeholder="e.g. C:, D:"></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:10px"><div class="title" style="font-size:15px;margin-bottom:8px">Away from home (Tailscale)</div>
+    <label class="check"><input type="checkbox" id="tnOn" ${S.tailnet.enabled ? "checked" : ""}>Connect through my private Tailscale network</label>
+    <div class="field"><label class="l">This PC is</label>
+      <label class="check"><input type="radio" name="tnMode" value="serve" ${S.tailnet.mode !== "connect" ? "checked" : ""}>The server (the PC that runs Plex)</label>
+      <label class="check"><input type="radio" name="tnMode" value="connect" ${S.tailnet.mode === "connect" ? "checked" : ""}>Another PC that opens the dashboard</label></div>
+    <div class="field"><label class="l">Server name on the network</label><input type="text" id="tnName" value="${esc(S.tailnet.name)}"></div>
+    <div class="field"><label class="l">Sign-in key (optional, from Tailscale → Settings → Keys)</label><input type="text" id="tnKey" value="${esc(S.tailnet.authkey)}" autocomplete="off" style="-webkit-text-security:disc"><div class="hint">Leave empty to sign in with a link instead.</div></div>
+    <div class="field"><label class="l">Helper download address</label><input type="text" id="tnUrl" value="${esc(S.tailnet.helper_url)}" placeholder="https://github.com/…/releases/latest/download/satailnet.exe"></div>
+    <div class="hint" id="tnInfo">Checking…</div>
+    <div class="actions"><button class="small" type="button" onclick="tailnetInstall()">Download helper</button><button class="small" type="button" onclick="tailnetRestart()">Connect</button></div>
+    <div class="hint">Save settings first after changing anything here. It only forwards the dashboard's own port and never touches Plex.</div></div>
+  <div class="card" style="margin-top:10px"><div class="title" style="font-size:15px;margin-bottom:8px">Plex backup</div>
+    <label class="check"><input type="checkbox" id="bkOn" ${S.backup.enabled ? "checked" : ""}>Back up Plex's library database and settings</label>
+    <div class="field"><label class="l">Backup folder</label><input type="text" id="bkFolder" value="${esc(S.backup.folder)}">
+      <button class="small" type="button" style="margin-top:6px" onclick="openPicker('bkFolder', true)">Browse…</button></div>
+    <div class="field"><label class="l">Copies to keep</label><input type="text" id="bkKeep" value="${esc(S.backup.keep)}" inputmode="numeric"></div>
+    <div class="hint" id="bkInfo">Checking size…</div>
+    <div class="actions"><button class="small" type="button" onclick="backupNow()">Back up now</button></div>
+    <div class="hint">Only the database and Preferences.xml are saved, not posters or other cache, so it stays small. Save settings first after changing the folder.</div></div>
+  <h2>Subtitle sources</h2>
+  <div class="hint" style="margin:0 4px 8px">Tried from top to bottom until a subtitle is found. Use ↑ ↓ to change the order. In addresses you can use
+    <code>{title}</code> <code>{year}</code> <code>{imdb}</code> <code>{lang}</code> <code>{lang_name}</code> <code>{title_slug}</code>.</div>
+  <div id="srcBox" class="stack"></div>
+  <div class="actions" style="margin:10px 0 0">
+    <button class="small" type="button" onclick="addSource('website')">+ Add website</button>
+    <button class="small" type="button" onclick="addSource('api')">+ Add API</button>
+    <select id="presetAdd" onchange="addPreset(this)" style="background:var(--line);color:var(--text);border:0;border-radius:10px;padding:7px"></select>
+  </div>
+  <div style="padding:14px 0 6px"><button class="primary" type="submit" style="width:100%">Save settings</button></div></form>
+  <div class="card" style="margin-top:10px"><div class="title" style="font-size:15px">Update</div>
+    <div class="hint" id="verLine" style="margin:4px 0 10px">Checking version…</div>
+    <div class="actions"><input type="file" id="updFile" accept=".zip"><button class="small primary" type="button" onclick="doUpdate()">Update now</button></div>
+    <div class="hint">Choose the newer ServerAssistant .zip. The program files are replaced and it restarts by itself. Your settings, history and subtitle sources are kept.</div></div>
+  <div class="card" style="margin-top:10px"><div class="title" style="font-size:15px">Server program</div>
+    <div class="actions"><button class="small" type="button" onclick="control('restart')">Restart</button>
+      <button class="small danger" type="button" id="stopBtn" onclick="control('stop')">Stop</button></div>
+    <div class="hint">After Stop, start it again from the Server Assistant icon in the Windows tray (by the clock) or with start.bat on the server.</div></div>`;
+  srcOpen = null; renderSources();
+  tailnetRefresh();
+  api("/api/backup").then(b => { const e = $("#bkInfo"); if (e) e.innerHTML = !b.found ? "Plex's database wasn't found on this PC."
+    : `One backup is about <b>${bytes(b.estimate)}</b>.` + (b.last ? ` Last: ${esc(b.last)} (${bytes(b.last_size)}), ${b.copies} kept.` : " No backup yet."); }).catch(() => {});
+  api("/api/version").then(v => { const e = $("#verLine"); if (e) e.innerHTML = `Version <b>${esc(v.version)}</b>${v.installed ? " · installed with Setup" : ""}<br>Your settings are in ${esc(v.data_folder)}`; }).catch(() => {});
+}
+function tailnetText(t) {
+  if (!t.enabled) return "Off.";
+  if (!t.installed) return "The helper isn't downloaded yet. Press Download helper.";
+  if (t.state === "login") return `Sign in to Tailscale once: <a href="${esc(t.url)}" target="_blank" rel="noopener">open the sign-in page</a>`;
+  if (t.state === "up") return t.mode === "serve" ? `Connected. Away from home, open <b>http://${esc(t.name)}:8765</b> (or http://${esc(t.ip)}:8765) on a device with Tailscale.`
+    : `Connected. Open <b>http://127.0.0.1:8766</b> on this PC to reach the server.`;
+  if (t.state === "error") return `<span class="fail">${esc(t.error || "Something went wrong.")}</span>`;
+  return "Starting…";
+}
+async function tailnetRefresh(n = 0) { const e = $("#tnInfo"); if (!e) return; try { const t = await api("/api/tailnet"); e.innerHTML = tailnetText(t); if (n < 40 && t.enabled && t.state !== "up" && t.state !== "error") setTimeout(() => tailnetRefresh(n + 1), 2000); } catch (x) {} }
+async function tailnetInstall() { toast("Downloading…"); try { await api("/api/tailnet/install", {method:"POST"}); toast("Helper installed"); } catch (e) { toast(e.message); } tailnetRefresh(); }
+async function tailnetRestart() { await api("/api/tailnet/restart", {method:"POST"}); tailnetRefresh(); }
+async function backupNow() {
+  toast("Backing up…");
+  try { const r = await api("/api/backup/run", {method:"POST"}); toast(`Backup done: ${bytes(r.size)}`); const b = await api("/api/backup"); const e = $("#bkInfo"); if (e) e.innerHTML = `Last: ${esc(b.last)} (${bytes(b.last_size)}), ${b.copies} kept.`; }
+  catch (e) { toast(e.message); }
+}
+async function doUpdate() {
+  const f = $("#updFile").files[0];
+  if (!f) { toast("Choose the update .zip first."); return; }
+  const fd = new FormData(); fd.append("file", f);
+  toast("Updating…");
+  try { const r = await api("/api/update", {method:"POST", body:fd}); toast(`Updated to ${r.version}. Restarting…`); }
+  catch (e) { toast(e.message); return; }
+  for (let i = 0; i < 60; i++) {  // wait for the server to come back, then reload
+    await new Promise(r => setTimeout(r, 1500));
+    try { const r = await fetch("/api/ping", {cache:"no-store"}); if (r.ok && i > 1) { location.reload(); return; } } catch (e) {}
+  }
+}
+async function saveSettings(ev) {
+  ev.preventDefault();
+  collectSources();
+  try { await api("/api/subsources", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({sources: srcList})}); }
+  catch (e) { toast(e.message); return; }
+  const mode = k => document.querySelector(`input[name=${k}Mode]:checked`).value;
+  const body = {
+    music: { mode: mode("music"), custom: val("musicFolders").value, download_folders: val("dlFolders").value,
+             lookback_days: val("lookback").value, catalog_gaps: val("catGaps").checked, sources: [...document.querySelectorAll(".msrc:checked")].map(x => x.value), release_types: [...document.querySelectorAll(".rtype:checked")].map(x => x.value) },
+    movies: { mode: mode("movies"), custom: val("moviesFolders").value },
+    subtitles: { enabled: val("sEnabled").checked, languages: val("sLang").value },
+    qbittorrent: { engine: document.querySelector("input[name=qEngine]:checked").value, enabled: val("qEnabled").checked, url: val("qUrl").value, username: val("qUser").value, password: val("qPass").value, save_path: val("qSave").value, upload_limit_kb: val("qUp").value },
+    tailnet: { enabled: val("tnOn").checked, mode: document.querySelector("input[name=tnMode]:checked").value, name: val("tnName").value, authkey: val("tnKey").value, helper_url: val("tnUrl").value },
+    backup: { enabled: val("bkOn").checked, folder: val("bkFolder").value, keep: val("bkKeep").value, every_days: 7 },
+    plex: { url: val("pUrl").value, token: val("pToken").value },
+    system: { drives: val("drives").value.split(",").map(x => x.trim()).filter(Boolean) },
+  };
+  try {
+    const r = await api("/api/settings", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    toast(`Saved. Music: ${r.music_in_use.length} folder(s), movies: ${r.movies_in_use.length} folder(s).`);
+    $("#view").innerHTML = ""; render();
+  } catch (e) { toast(e.message); }
+}
+
+let stopArmed = false;
+async function control(action) {
+  if (action === "stop" && !stopArmed) { stopArmed = true; val("stopBtn").textContent = "Tap again to stop"; setTimeout(() => { stopArmed = false; if (val("stopBtn")) val("stopBtn").textContent = "Stop"; }, 4000); return; }
+  try { await api("/api/control/" + action, {method:"POST"}); } catch (e) { toast(e.message); return; }
+  if (action === "stop") { $("#view").innerHTML = `<div class="empty">Server Assistant is stopped.<br>Start it again from the tray icon on the server or with start.bat.</div>`; $("#sub").innerHTML = ""; return; }
+  toast("Restarting…");
+  $("#view").innerHTML = `<div class="empty">Restarting…</div>`;
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    try { await api("/api/status"); toast("Back up"); render(); return; } catch (e) {}
+  }
+  toast("Still not back. Check the server.");
+}
+
+/* subtitle sources */
+let srcList = [], srcPresets = {}, srcOpen = null;
+const TYPE_LABEL = {website: "Website", api: "API", opensubtitles: "API", subdl: "API"};
+function srcFields(x, i) {
+  const f = (k, label, ph = "", secret = false) => `<div class="field"><label class="l">${label}</label><input type="text" data-i="${i}" data-k="${k}" value="${esc(x[k] ?? "")}" placeholder="${esc(ph)}" autocomplete="off"${secret ? ' style="-webkit-text-security:disc"' : ""}></div>`;
+  let h = f("name", "Name");
+  if (x.type === "website") {
+    if (x.base_url !== undefined) h += f("base_url", "Site address", "https://…");
+    h += f("search_url", "Search address", "https://site.com/search?q={title}+{year}");
+    h += `<label class="check"><input type="checkbox" data-i="${i}" data-k="needs_imdb" ${x.needs_imdb ? "checked" : ""}>Only search when the movie has an IMDb id</label>`;
+    h += f("max_pages", "Pages to open per search", "8");
+  } else if (x.type === "api") {
+    h += f("search_url", "API search address", "https://api.site.com/subs?imdb={imdb}&lang={lang}&key=YOURKEY");
+    h += `<div class="field"><label class="l">Extra headers (one per line, e.g. Api-Key: abc)</label><textarea data-i="${i}" data-k="headers" style="min-height:44px">${esc(x.headers || "")}</textarea></div>`;
+  } else if (x.type === "opensubtitles") {
+    h += f("api_key", "API key", "", true) + f("username", "Username") + f("password", "Password", "", true);
+  } else if (x.type === "subdl") {
+    h += f("api_key", "API key", "", true);
+  }
+  const note = x.preset && srcPresets[x.preset] ? `<div class="hint" style="margin-bottom:8px">${esc(srcPresets[x.preset].note)}</div>` : "";
+  return note + h + `<div class="card" style="background:var(--bg);margin-top:6px"><div class="small-t" style="margin-bottom:6px">Test this source</div>
+    <div class="grid2" style="grid-template-columns:2fr 1fr 1.4fr 0.8fr;gap:6px">
+      <input type="text" id="tTitle${i}" value="Heat" placeholder="Title"><input type="text" id="tYear${i}" value="1995" placeholder="Year">
+      <input type="text" id="tImdb${i}" value="tt0113277" placeholder="IMDb id"><input type="text" id="tLang${i}" value="fa" placeholder="Lang"></div>
+    <div class="actions"><button class="small primary" type="button" onclick="testSource(${i})">Run test</button></div>
+    <div id="tOut${i}" class="small-t"></div></div>`;
+}
+function renderSources() {
+  const box = val("srcBox"); if (!box) return;
+  box.innerHTML = srcList.map((x, i) => `<div class="card" style="padding:10px 12px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" data-i="${i}" data-k="enabled" ${x.enabled !== false ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--accent)" title="On/off">
+      <div class="grow" style="cursor:pointer" onclick="toggleSrc(${i})"><b>${esc(x.name || "New source")}</b> <span class="pill">${TYPE_LABEL[x.type] || x.type}</span>${x.enabled === false ? ' <span class="pill">off</span>' : ""}</div>
+      <button class="small" type="button" onclick="moveSrc(${i},-1)" ${i === 0 ? "disabled" : ""}>↑</button>
+      <button class="small" type="button" onclick="moveSrc(${i},1)" ${i === srcList.length - 1 ? "disabled" : ""}>↓</button>
+      <button class="small" type="button" onclick="toggleSrc(${i})">${srcOpen === i ? "Close" : "Edit"}</button>
+      <button class="small danger" type="button" onclick="removeSrc(${i})">✕</button>
+    </div>${srcOpen === i ? `<div style="margin-top:10px">${srcFields(x, i)}</div>` : ""}</div>`).join("") || `<div class="card muted">No sources. Add one below.</div>`;
+  const used = new Set(srcList.map(x => x.preset).filter(Boolean));
+  const free = Object.entries(srcPresets).filter(([k]) => !used.has(k));
+  val("presetAdd").innerHTML = `<option value="">+ Add built-in…</option>` + free.map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join("");
+  val("presetAdd").hidden = !free.length;
+}
+function collectSources() {
+  document.querySelectorAll("#srcBox [data-k]").forEach(el => {
+    const x = srcList[+el.dataset.i]; if (!x) return;
+    x[el.dataset.k] = el.type === "checkbox" ? el.checked : el.value;
+  });
+}
+function toggleSrc(i) { collectSources(); srcOpen = srcOpen === i ? null : i; renderSources(); }
+function moveSrc(i, d) { collectSources(); const j = i + d; [srcList[i], srcList[j]] = [srcList[j], srcList[i]]; if (srcOpen === i) srcOpen = j; else if (srcOpen === j) srcOpen = i; renderSources(); }
+function removeSrc(i) { collectSources(); if (!confirmRemove(i)) return; srcList.splice(i, 1); srcOpen = null; renderSources(); }
+let removeArmed = null;
+function confirmRemove(i) { if (removeArmed === i) { removeArmed = null; return true; } removeArmed = i; toast("Tap ✕ again to remove " + (srcList[i].name || "this source")); setTimeout(() => removeArmed = null, 4000); return false; }
+function addSource(type) {
+  collectSources();
+  srcList.push(type === "api" ? {type: "api", name: "My API", search_url: "", enabled: true} : {type: "website", name: "My website", search_url: "", max_pages: 8, enabled: true});
+  srcOpen = srcList.length - 1; renderSources();
+}
+function addPreset(sel) {
+  if (!sel.value) return; collectSources();
+  srcList.push({...srcPresets[sel.value].config, preset: sel.value, enabled: true});
+  srcOpen = srcList.length - 1; renderSources();
+}
+async function testSource(i) {
+  collectSources();
+  const out = val("tOut" + i); out.innerHTML = "Testing… (this can take up to a minute)";
+  try {
+    const r = await api("/api/subsources/test", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({
+      source: srcList[i], title: val("tTitle" + i).value, year: val("tYear" + i).value, imdb: val("tImdb" + i).value, lang: val("tLang" + i).value.trim() || "en"})});
+    let h = r.ok ? `<div class="ok" style="margin-top:6px">✓ ${esc(r.ok)}</div>` + (r.sample ? `<div class="folderlist" style="margin-top:4px" dir="auto">${r.sample.map(esc).join("<br>")}</div>` : "")
+                 : `<div class="fail" style="margin-top:6px">✗ ${esc(r.error || "No result")}</div>`;
+    if (r.candidates.length) h += `<div style="margin-top:6px">Found ${r.candidates.length}:</div>` + r.candidates.slice(0, 5).map(c => `<div class="path">• ${esc(c.name)}</div>`).join("");
+    h += `<details style="margin-top:6px"><summary>What it did</summary><div class="path">${r.trace.map(esc).join("<br>")}</div></details>`;
+    out.innerHTML = h;
+  } catch (e) { out.innerHTML = `<div class="fail">${esc(e.message)}</div>`; }
+}
+
+/* folder picker */
+let pickTarget = null, pickSingle = false;
+function openPicker(target, single = false) { pickTarget = target; pickSingle = single; browseTo(""); }
+async function browseTo(path) {
+  let d; try { d = await api("/api/browse?path=" + encodeURIComponent(path)); } catch (e) { toast(e.message); return; }
+  const o = $("#picker"); o.hidden = false;
+  o.innerHTML = `<div class="sheet"><div class="title" style="font-size:15px">Choose a folder on the server</div>
+    <div class="meta" style="margin-top:4px">${d.path ? esc(d.path) : "Drives"}</div>
+    <div class="items">${d.path ? `<button onclick='browseTo(${JSON.stringify(d.parent || "")})'>⬆ Up</button>` : ""}
+      ${d.folders.map(f => `<button onclick='browseTo(${JSON.stringify(f)})'>📁 ${esc(d.path ? f.split(/[\\/]/).filter(Boolean).pop() : f)}</button>`).join("") || `<div class="muted" style="padding:10px">No subfolders</div>`}</div>
+    <div class="actions" style="margin:0">${d.path ? `<button class="primary small" onclick='pickFolder(${JSON.stringify(d.path)})'>Use this folder</button>` : ""}
+      <button class="small" onclick="$('#picker').hidden=true">Cancel</button></div></div>`;
+}
+function pickFolder(path) {
+  const el = val(pickTarget);
+  if (pickSingle || el.tagName === "INPUT") el.value = path;
+  else { const lines = el.value.split("\n").map(x => x.trim()).filter(Boolean); if (!lines.includes(path)) lines.push(path); el.value = lines.join("\n"); }
+  $("#picker").hidden = true;
+}
+
+/* ---------------- shell ---------------- */
+let rendering = false;
+let seq = 0, inflight = false;
+const tabCache = {};
+const setSub = (my, h) => { if (my === seq) $("#sub").innerHTML = h; };
+const setView = (my, h) => { if (my === seq) $("#view").innerHTML = h; };
+async function render() {
+  const my = ++seq, myTab = tab; inflight = true;
+  try {
+    if (tab === "server") await renderServer();
+    else if (tab === "music") await renderMusic();
+    else if (tab === "downloads") await renderDownloads();
+    else if (tab === "subs") await renderSubs();
+    else await renderSettings();
+    if (my !== seq) return;  // another tab was opened meanwhile
+    tabCache[myTab] = { heading: $("#heading").textContent, sub: $("#sub").innerHTML, view: $("#view").innerHTML };
+    const st = await api("/api/status"); const n = st.release_counts.new || 0;
+    $("#newCount").hidden = !n; $("#newCount").textContent = n;
+  } catch (e) { if (my === seq) $("#sub").innerHTML = `<span class="fail">Can't reach the server: ${esc(e.message)}</span>`; }
+  if (my === seq) inflight = false;
+}
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => { selectTab(b.dataset.tab); window.scrollTo(0, 0); render(); });
+function selectTab(name) {
+  tab = name; openAdd = null; confirmStop = null;
+  const c = tabCache[name];  // show what we had last time straight away, then refresh behind it
+  if (c && name !== "settings") { $("#heading").textContent = c.heading; $("#sub").innerHTML = c.sub; $("#view").innerHTML = c.view; }
+  else { $("#heading").textContent = ({server:"Server", music:"Music", downloads:"Downloads", subs:"Subtitles", settings:"Settings"})[name]; $("#sub").textContent = ""; $("#view").innerHTML = `<div class="empty">Loading…</div>`; }
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x.dataset.tab === name));
+  history.replaceState(null, "", "#" + name);
+}
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+if (window.Android) { $("#appGear").hidden = false; $("#appGear").onclick = () => Android.changeServer(); }
+const start = location.hash.slice(1);
+if (["server", "music", "downloads", "subs", "settings"].includes(start)) selectTab(start);
+render();
+setInterval(() => { if (inflight || (tab === "music" && openAdd) || tab === "settings") return; render(); }, 5000);
+</script>
+</body>
+</html>

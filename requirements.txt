@@ -1,0 +1,9 @@
+fastapi>=0.110
+uvicorn>=0.29
+requests>=2.31
+mutagen>=1.47
+psutil>=5.9
+python-multipart>=0.0.9
+pystray>=0.19
+pillow>=10
+zeroconf>=0.130

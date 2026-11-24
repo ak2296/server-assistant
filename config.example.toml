@@ -1,0 +1,76 @@
+# Server Assistant settings
+# Easiest: change these from the Settings tab in the app.
+
+[server]
+# 0.0.0.0 lets your phone reach the dashboard over your home Wi-Fi.
+host = "0.0.0.0"
+port = 8765
+
+[music]
+# Your music library. "auto" = use the folders of your Plex music libraries.
+# Or give your own: library = ["D:/Media/Music"]
+library = "auto"
+
+# Folders where you save music downloads. Anything that shows up here and contains
+# audio files is moved into  <library>/<Artist>/<Year> - <Album>/
+# Tip: use a dedicated folder (e.g. Downloads/Music) so nothing else gets picked up.
+download_folders = []
+
+# How the album folder is named. Fields: {artist} {album} {year}
+album_folder_format = "{year} - {album}"
+
+# Only show releases that came out in the last N days.
+lookback_days = 120
+
+# Which kinds of release to show: "Album", "Single", "EP"
+release_types = ["Album", "Single", "EP"]
+
+# Hide releases tagged with any of these (MusicBrainz secondary types).
+skip_secondary_types = ["Compilation", "Live", "Remix", "DJ-mix", "Demo", "Mixtape/Street"]
+
+# Hours between new-release checks.
+check_every_hours = 12
+
+# Seconds a download must stay unchanged before it is moved (so half-finished files are left alone).
+settle_seconds = 60
+
+[qbittorrent]
+# Paste magnet links / .torrent files in the dashboard; they're sent to qBittorrent.
+# In qBittorrent: Tools > Options > Web UI > tick "Web User Interface", set a username/password.
+enabled = true
+url = "http://localhost:8080"
+username = "admin"
+password = ""
+# Music torrents go into this qBittorrent category and are moved into your library when done.
+category = "server-assistant"
+# Where torrents download to before being sorted. Empty = qBittorrent's default folder.
+save_path = ""
+# Torrents added from the dashboard are removed from qBittorrent as soon as they
+# finish (files kept), so they don't seed. BitTorrent still shares small pieces
+# WHILE downloading; cap that here in KB/s (0 = no cap, 1 = as low as it goes).
+upload_limit_kb = 1
+
+[plex]
+url = "http://localhost:32400"
+# Leave empty: on the Plex PC the token is read automatically.
+token = ""
+# Ask Plex to scan the new album folder right after music is sorted.
+scan_after_import = true
+
+[system]
+# Drives to show on the Server tab, e.g. ["C:", "V:"]. Empty = all drives.
+drives = []
+
+[subtitles]
+enabled = true
+# Movie folders to scan for videos missing subtitles. "auto" = your Plex movie libraries.
+movie_folders = "auto"
+# Language codes. A subtitle is fetched for each language: en = English, fa = Persian (Farsi).
+languages = ["en", "fa"]
+# Free account + API key from https://www.opensubtitles.com  (Profile -> API consumers)
+api_key = ""
+username = ""
+password = ""
+check_every_hours = 6
+# Free accounts get a limited number of downloads per day; stop after this many per run.
+max_downloads_per_run = 15

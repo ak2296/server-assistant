@@ -203,7 +203,12 @@ function paintStatus() {  // the version line in the menu: shown on every page
   $("#railStatus").innerHTML = plex + `Server Assistant v${esc(appVer)}`;
   $("#miniStatus").innerHTML = (plexOnline === null ? "" : (plexOnline ? '<span class="ok">●</span> Plex running' : '<span class="fail">●</span> Plex not responding') + " · ") + `Server Assistant v${esc(appVer)}`;
 }
-const loadVersion = () => fetch("/api/version").then(r => r.json()).then(v => { appVer = v.version; paintStatus(); }).catch(() => {});
+let loadedVer = "";
+const loadVersion = () => fetch("/api/version").then(r => r.json()).then(v => {
+  if (!loadedVer) loadedVer = v.version;
+  else if (v.version !== loadedVer && !document.getElementById("settingsForm")) { location.reload(); return; }  // the server was updated: show the new screens (not while editing Settings)
+  appVer = v.version; paintStatus();
+}).catch(() => {});
 loadVersion(); setInterval(loadVersion, 60000);
 const foldState = (() => { try { return JSON.parse(sessionStorage.getItem("folds") || "{}"); } catch (e) { return {}; } })();
 const isOpen = (id, def = false) => id in foldState ? foldState[id] : def;

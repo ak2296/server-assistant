@@ -48,7 +48,12 @@ def ensure_libtorrent():
         LT_STATE.update(state="ok", detail="")
         log.info("libtorrent installed")
     except Exception as e:
-        LT_STATE.update(state="failed", detail=(last or f"{type(e).__name__}: {e}"))
+        why = last or f"{type(e).__name__}: {e}"
+        if "No matching distribution" in why or "no matching" in why.lower():
+            why = (f"libtorrent has no build for the Python on this PC (Python {sys.version_info[0]}.{sys.version_info[1]}, "
+                   f"{'64' if sys.maxsize > 2**32 else '32'}-bit). It exists for 64-bit Python 3.9 to 3.13: install Python 3.13, "
+                   "then delete the .venv folder in the program folder and start the app again.")
+        LT_STATE.update(state="failed", detail=why)
         log.warning("libtorrent unavailable: %s", LT_STATE["detail"])
 
 

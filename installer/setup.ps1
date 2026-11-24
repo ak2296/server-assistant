@@ -30,6 +30,8 @@ function Find-Python {
         $candidates += @{ Exe = (Join-Path $local "Python$v\python.exe"); Args = @() }
         $candidates += @{ Exe = (Join-Path $env:ProgramFiles "Python$v\python.exe"); Args = @() }
     }
+    # libtorrent (the built-in downloader) only exists for Python 3.9 to 3.13, so prefer those over a newer one
+    foreach ($v in "3.13", "3.12", "3.11") { $candidates += @{ Exe = "py"; Args = @("-$v") } }
     $candidates += @{ Exe = "py"; Args = @("-3") }
     $candidates += @{ Exe = "python"; Args = @() }
     foreach ($c in $candidates) {

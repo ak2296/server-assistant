@@ -178,12 +178,26 @@ class Plex:
 
     def recent_split(self, n: int = 16) -> dict:
         """Recently added music and video from one small request, for the two carousels."""
-        audio_t, video_t = {"album", "track", "artist"}, {"movie", "episode", "season", "show"}
         out = {"audio": [], "video": []}
-        for it in self.recently_added(n * 5):
-            k = "audio" if it["type"] in audio_t else "video" if it["type"] in video_t else None
-            if k and len(out[k]) < n:
-                out[k].append(it)
+        for d in self.get("/library/sections").get("Directory", []):
+            typ = d.get("type")
+            if typ not in ("artist", "movie", "show") or self._left_out(d):
+                continue
+            params = {"X-Plex-Container-Start": 0, "X-Plex-Container-Size": n}
+            if typ == "artist":
+                params["type"] = 9  # albums, not single tracks
+            try:
+                md = self.get(f"/library/sections/{d['key']}/recentlyAdded", **params).get("Metadata", [])
+            except Exception as e:
+                log.debug("recently added in %s failed: %s", d.get("title"), e)
+                continue
+            for m in md:
+                out["audio" if typ == "artist" else "video"].append(
+                    {"title": m.get("title"), "parent": m.get("parentTitle") or m.get("grandparentTitle"),
+                     "type": m.get("type"), "year": m.get("year"), "added_at": m.get("addedAt"),
+                     "thumb": m.get("thumb") or m.get("parentThumb") or m.get("grandparentThumb")})
+        for k in out:
+            out[k] = sorted(out[k], key=lambda x: -(x.get("added_at") or 0))[:n]
         return out
 
     def history(self, n: int = 80) -> list[dict]:

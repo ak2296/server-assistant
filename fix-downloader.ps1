@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $Dir = $PSScriptRoot
 $log = Join-Path $Dir "fix-downloader.log"
-Start-Transcript -Path $log -Force | Out-Null
+try { Start-Transcript -Path $log -Force | Out-Null } catch {}
 
 function Test-313($exe, $extra) {
     try {
@@ -31,6 +31,17 @@ function Download($url, $file) {
     catch { Write-Host "Download with PowerShell failed ($($_.Exception.Message)), trying curl..." }
     & curl.exe -L --fail -o $file $url
     if ($LASTEXITCODE -ne 0) { throw "Could not download $url" }
+}
+function Is-Running {
+    $prefix = (Join-Path $Dir "")
+    return [bool](Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+}
+function Start-App {
+    $w = Join-Path $Dir ".venv\Scripts\pythonw.exe"
+    if ((Test-Path $w) -and -not (Is-Running)) {
+        Start-Process -FilePath $w -ArgumentList "`"$(Join-Path $Dir 'tray.py')`"" -WorkingDirectory $Dir
+    }
 }
 function Stop-Running {
     $prefix = (Join-Path $Dir "")
@@ -80,7 +91,7 @@ try {
     if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: libtorrent still could not be loaded." } else { Write-Host "The built-in downloader is ready." }
     Remove-Item $old -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "Starting Server Assistant..."
-    Start-Process -FilePath (Join-Path $venv "Scripts\pythonw.exe") -ArgumentList "`"$(Join-Path $Dir 'tray.py')`"" -WorkingDirectory $Dir
+    Start-App
     Write-Host "Done."
 } catch {
     Write-Host ("ERROR: " + $_.Exception.Message)
@@ -90,8 +101,8 @@ try {
     if ($olds -and -not (Test-Path (Join-Path $venv "Scripts\python.exe"))) {
         if (Test-Path $venv) { Remove-Item $venv -Recurse -Force -ErrorAction SilentlyContinue }
         Rename-Item $olds[0].FullName $venv
-        Start-Process -FilePath (Join-Path $venv "Scripts\pythonw.exe") -ArgumentList "`"$(Join-Path $Dir 'tray.py')`"" -WorkingDirectory $Dir
     }
+    try { Start-App } catch { Write-Host ("Could not start the app: " + $_.Exception.Message) }
 } finally {
     Stop-Transcript | Out-Null
 }

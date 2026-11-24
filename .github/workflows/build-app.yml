@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["app/**", "run.py", "tray.py", "appwindow.py", "requirements*.txt", "config.example.toml", "README.md", "VERSION"]
+    paths: ["app/**", "run.py", "tray.py", "appwindow.py", "requirements*.txt", "config.example.toml", "README.md", "VERSION", "installer/**"]
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -19,10 +19,18 @@ jobs:
           find ServerAssistant -name __pycache__ -prune -exec rm -rf {} +
           zip -qr ServerAssistant.zip ServerAssistant
           echo "VER=$VER" >> "$GITHUB_ENV"
+      - name: Build the installers
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq nsis
+          bash installer/build.sh
+          cp ../ServerAssistant-Setup.exe ../ServerAssistant-Viewer-Setup.exe .
       - name: Publish as the newest version
         uses: softprops/action-gh-release@v2
         with:
           tag_name: app-latest
           name: v${{ env.VER }}
           make_latest: false
-          files: ServerAssistant.zip
+          files: |
+            ServerAssistant.zip
+            ServerAssistant-Setup.exe
+            ServerAssistant-Viewer-Setup.exe

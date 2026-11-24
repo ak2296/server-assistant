@@ -678,7 +678,7 @@ async function renderSettings() {
     <div class="hint" id="verLine" style="margin:4px 0 10px">Checking version…</div>
     <label class="check"><input type="checkbox" id="updAuto" ${S.updates.auto ? "checked" : ""}>Update automatically when a new version is on GitHub</label>
     <div class="hint" id="updInfo">Press Check to see the newest version.</div>
-    <div class="actions"><button class="small" type="button" onclick="checkUpdates()">Check for updates</button><button class="small primary" type="button" id="updInstall" hidden onclick="installUpdates()">Install now</button></div>
+    <div class="actions"><button class="small" type="button" onclick="checkUpdates()">Check for updates</button>${window.Android && window.Android.checkUpdate ? `<button class="small" type="button" onclick="Android.checkUpdate()">Check the phone app for updates</button>` : ""}<button class="small primary" type="button" id="updInstall" hidden onclick="installUpdates()">Install now</button></div>
     <div class="hint" style="margin-top:10px">Or install from a file:</div>
     <div class="actions"><input type="file" id="updFile" accept=".zip"><button class="small primary" type="button" onclick="doUpdate()">Update now</button></div>
     <div class="hint">Choose the newer ServerAssistant .zip. The program files are replaced and it restarts by itself. Your settings, history and subtitle sources are kept.</div></div>

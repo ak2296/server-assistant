@@ -86,6 +86,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("settings", MODE_PRIVATE);
         pendingIntent = getIntent();
         startApp();
+        Updater.check(this, prefs, false);
     }
 
     /** Home first; if the home server doesn't answer and away-from-home is set up, go through the private network. */
@@ -517,7 +518,10 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public String version() { return "1.0"; }
+        public String version() { return Updater.current(MainActivity.this); }
+
+        @JavascriptInterface
+        public void checkUpdate() { Updater.check(MainActivity.this, prefs, true); }
     }
 
     @Override

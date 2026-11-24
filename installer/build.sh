@@ -12,4 +12,6 @@ VER=$(cat ../VERSION)
 makensis -V2 -DVERSION="$VER" ServerAssistant.nsi
 mv ServerAssistant-Setup.exe ../../ServerAssistant-Setup.exe
 rm -rf stage
-echo built ../ServerAssistant-Setup.exe
+makensis -V2 -DVERSION="$VER" Viewer.nsi
+mv ServerAssistant-Viewer-Setup.exe ../../ServerAssistant-Viewer-Setup.exe
+echo built ../ServerAssistant-Setup.exe and the Viewer

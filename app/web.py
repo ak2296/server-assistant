@@ -929,7 +929,7 @@ def _auto_update_loop(st: State):
                     return  # the program restarts
             except Exception as e:
                 log.info("Update check failed: %s", e)
-        st.stop.wait(max(5, int(u.get("every_minutes", 10))) * 60)
+        st.stop.wait(180)  # every 3 minutes: one tiny request to GitHub
 
 
 @app.get("/api/control")

@@ -6,3 +6,9 @@ config.toml
 android-source/build/
 android-source/ServerAssistant.apk
 android-source/*.keystore
+
+# signing keys and the text copy of the key: never commit
+android-keystore-secret*.txt
+*.keystore
+*.jks
+*keystore*.txt

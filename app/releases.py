@@ -106,9 +106,9 @@ def check_artist(db: DB, cfg: dict, folder: str) -> int:
     wanted_types = {t.lower() for t in music["release_types"]}
     skip_secondary = {t.lower() for t in music["skip_secondary_types"]}
     owned = library.owned_albums(music["roots"], folder) | PLEX_ALBUMS.get(library.normalize(folder), set())
-    # releases we already know for this artist, so the same album from two sources shows up once
-    seen = {(library._core(library.normalize(r["title"])), (r["type"] or "").lower())
-            for r in db.query("SELECT title, type FROM releases WHERE artist=?", (folder,))}
+    # releases we already know for this artist, so the same record from two sources (or an edition) shows up once
+    seen = [r["title"] for r in db.query("SELECT title FROM releases WHERE artist=?", (folder,))]
+    is_seen = lambda t: any(library.same_title(t, x) for x in seen)
     added = 0
 
     for g in _candidates(db, cfg, folder):
@@ -118,9 +118,8 @@ def check_artist(db: DB, cfg: dict, folder: str) -> int:
         if d < cutoff:
             # older albums you don't own: the "Missing albums" list (off by default)
             if music.get("catalog_gaps") and g["type"] == "Album" and not g["secondary"] and not library.is_owned(g["title"], owned):
-                key = (library._core(library.normalize(g["title"])), "album")
-                if key not in seen:
-                    seen.add(key)
+                if not is_seen(g["title"]):
+                    seen.append(g["title"])
                     db.execute("INSERT OR IGNORE INTO releases (mbid, artist, title, type, date, status, found_at, cover, url, src) "
                                "VALUES (?,?,?,?,?,?,?,?,?,?)", (g["id"], folder, g["title"], g["type"], d, "gap", now(), g["cover"], g["url"], g["src"]))
             continue
@@ -128,10 +127,9 @@ def check_artist(db: DB, cfg: dict, folder: str) -> int:
             continue
         if any(s.lower() in skip_secondary for s in g["secondary"]):
             continue
-        key = (library._core(library.normalize(g["title"])), g["type"].lower())
-        if key in seen:
+        if is_seen(g["title"]):
             continue
-        seen.add(key)
+        seen.append(g["title"])
         status = "got" if library.is_owned(g["title"], owned) else "new"
         cur = db.execute(
             "INSERT OR IGNORE INTO releases (mbid, artist, title, type, date, status, found_at, cover, url, src) "
@@ -145,7 +143,41 @@ def check_artist(db: DB, cfg: dict, folder: str) -> int:
     return added
 
 
+_RANK = {"got": 0, "wanted": 1, "skipped": 2, "new": 3, "gap": 4}
+_SRC = {"musicbrainz": 0, "deezer": 1, "itunes": 2}
+
+
+def dedupe_releases(db: DB) -> int:
+    """Merge copies of the same release that came from different sources. Keeps one; your choice (Later/Skipped/Got) is kept."""
+    removed = 0
+    rows = db.query("SELECT * FROM releases ORDER BY artist")
+    by_artist: dict[str, list[dict]] = {}
+    for r in rows:
+        by_artist.setdefault(r["artist"], []).append(r)
+    for artist, items in by_artist.items():
+        used: set[str] = set()
+        for r in items:
+            if r["mbid"] in used:
+                continue
+            group = [r] + [o for o in items if o["mbid"] != r["mbid"] and o["mbid"] not in used and library.same_title(r["title"], o["title"])]
+            used.update(g["mbid"] for g in group)
+            if len(group) == 1:
+                continue
+            # the status you chose wins; among equals prefer the best source, then an Album over a Single
+            best_status = min((g["status"] for g in group), key=lambda x: _RANK.get(x, 9))
+            keep = sorted(group, key=lambda g: (_SRC.get(g["src"] or "musicbrainz", 3), {"Album": 0, "EP": 1, "Single": 2}.get(g["type"], 3),
+                                                 0 if g["cover"] else 1))[0]
+            if keep["status"] != best_status:
+                db.execute("UPDATE releases SET status=? WHERE mbid=?", (best_status, keep["mbid"]))
+            for g in group:
+                if g["mbid"] != keep["mbid"]:
+                    db.execute("DELETE FROM releases WHERE mbid=?", (g["mbid"],))
+                    removed += 1
+    return removed
+
+
 def check_all(db: DB, cfg: dict, progress: dict | None = None) -> int:
+    dedupe_releases(db)
     skipped = {r["artist"] for r in db.query("SELECT artist FROM skipped_artists")}
     artists = [a for a in library.list_artists(cfg["music"]["roots"]) if a not in skipped]
     total = 0

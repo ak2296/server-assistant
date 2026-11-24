@@ -7,3 +7,4 @@ python-multipart>=0.0.9
 pystray>=0.19
 pillow>=10
 zeroconf>=0.130
+truststore>=0.9

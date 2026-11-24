@@ -171,7 +171,7 @@ class Plex:
                           "thumb": m.get("thumb") or m.get("parentThumb")})
         return items
 
-    def history(self, n: int = 15) -> list[dict]:
+    def history(self, n: int = 80) -> list[dict]:
         names = self.accounts()
         rows = []
         mc = self.get("/status/sessions/history/all", sort="viewedAt:desc",

@@ -1,12 +1,3 @@
 @echo off
-rem Installs the Server Assistant Viewer for this Windows account (no admin rights needed).
-set "DEST=%LOCALAPPDATA%\Programs\Server Assistant Viewer"
-mkdir "%DEST%" 2>nul
-copy /y "%~dp0viewer.ps1" "%DEST%\" >nul
-copy /y "%~dp0favicon.ico" "%DEST%\" >nul
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFolderPath('Desktop'); $s=(New-Object -ComObject WScript.Shell).CreateShortcut(\"$d\Server Assistant.lnk\"); $s.TargetPath='powershell.exe'; $s.Arguments='-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"%DEST%\viewer.ps1\"'; $s.IconLocation='%DEST%\favicon.ico'; $s.Save(); $m=[Environment]::GetFolderPath('Programs'); $t=(New-Object -ComObject WScript.Shell).CreateShortcut(\"$m\Server Assistant.lnk\"); $t.TargetPath=$s.TargetPath; $t.Arguments=$s.Arguments; $t.IconLocation=$s.IconLocation; $t.Save()"
-echo.
-echo Installed. A "Server Assistant" icon is now on your desktop and in the Start menu.
-echo Opening it now...
-start "" powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%DEST%\viewer.ps1"
-timeout /t 4 >nul
+start "" /b powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0Install-Viewer.ps1"
+exit

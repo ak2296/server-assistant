@@ -66,10 +66,23 @@
   .log .path { color:var(--muted); font-size:13px; overflow-wrap:anywhere; }
   .badge { background:var(--accent); color:var(--on-accent); border-radius:10px; padding:1px 8px; font-size:12px; margin-left:auto; font-weight:700; }
   .field { margin-bottom:16px; }
-  .settings-grid > .card { margin-bottom:12px; }
+  .settings-grid > .card, .settings-grid > details.fold { margin-bottom:12px; }
   .field label.l { display:block; font-size:14px; color:var(--muted); margin-bottom:6px; }
   .hint { font-size:13px; color:var(--muted); margin-top:6px; }
   [hidden] { display:none !important; }
+  /* collapsible sections */
+  details.fold { background:var(--card); border-radius:16px; margin:0 0 12px; }
+  details.fold > summary { list-style:none; cursor:pointer; padding:12px 16px; min-height:52px; display:flex; align-items:center; gap:12px; font-weight:700; font-size:16px; border-radius:16px; }
+  details.fold > summary::-webkit-details-marker { display:none; }
+  details.fold > summary::before { content:""; width:8px; height:8px; flex-shrink:0; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:rotate(-45deg); transition:transform .15s; }
+  details.fold[open] > summary::before { transform:rotate(45deg); }
+  details.fold > summary:hover { background:var(--card2); }
+  details.fold > summary:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+  details.fold .m { margin-left:auto; font-weight:400; font-size:13px; color:var(--muted); }
+  details.fold .fbody { padding:0 16px 16px; }
+  #view > details.fold { margin-top:10px; }
+  .savebar { position:sticky; bottom:calc(76px + env(safe-area-inset-bottom)); z-index:4; padding:14px 0 8px; background:linear-gradient(rgba(31,35,38,0), var(--bg) 45%); }
+  @media (prefers-reduced-motion: reduce) { details.fold > summary::before { transition:none; } }
   .check { display:flex; gap:10px; align-items:center; font-size:15px; margin-bottom:10px; min-height:32px; }
   .check input { width:20px; height:20px; accent-color:var(--accent); }
   .seg { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
@@ -105,7 +118,8 @@
     .stack.cols { display:grid; grid-template-columns:1fr 1fr; }
     .recent { grid-template-columns:repeat(auto-fill, minmax(130px,1fr)); }
     .settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; }
-    .settings-grid > .card { margin-bottom:0; }
+    .settings-grid > .card, .settings-grid > details.fold { margin-bottom:0; }
+    .savebar { bottom:0; }
     .overlay { align-items:center; } .overlay .sheet { border-radius:18px; }
     .toast { left:auto; right:24px; bottom:24px; width:360px; }
     /* release tiles: big covers in a grid */
@@ -142,7 +156,24 @@ let showUnmatched = false;
 let tab = "server", musicFilter = "new", openAdd = null, confirmStop = null;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const api = async (p, opt) => { const r = await fetch(p, opt); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.detail || r.statusText); return j; };
+const api = async (p, opt) => { let r; for (let i = 0; ; i++) { try { r = await fetch(p, opt); break; } catch (e) { if (i >= 2 || (opt && opt.method && opt.method !== "GET")) throw e; await new Promise(x => setTimeout(x, 600 * (i + 1))); } } const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.detail || r.statusText); return j; };
+let histTab = "video";
+const foldState = (() => { try { return JSON.parse(sessionStorage.getItem("folds") || "{}"); } catch (e) { return {}; } })();
+const isOpen = (id, def = false) => id in foldState ? foldState[id] : def;
+document.addEventListener("toggle", e => { const d = e.target; if (d.classList && d.classList.contains("fold") && d.dataset.f) { foldState[d.dataset.f] = d.open; try { sessionStorage.setItem("folds", JSON.stringify(foldState)); } catch (x) {} } }, true);
+const fold = (id, title, body, meta = "", def = false) => `<details class="fold" data-f="${id}" ${isOpen(id, def) ? "open" : ""}><summary><span>${title}</span>${meta ? `<span class="m">${meta}</span>` : ""}</summary><div class="fbody">${body}</div></details>`;
+function foldCards() {
+  const v = $("#view");
+  [...v.querySelectorAll(".card")].filter(c => c.firstElementChild && c.firstElementChild.classList.contains("title") && /font-size:\s*15px/.test(c.firstElementChild.getAttribute("style") || "")).forEach(c => {
+    const t = c.firstElementChild, title = t.textContent.trim(), id = "s-" + title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const d = document.createElement("details"); d.className = "fold"; d.dataset.f = id; d.open = isOpen(id, false);
+    const sm = document.createElement("summary"); sm.innerHTML = `<span>${esc(title)}</span>`;
+    const b = document.createElement("div"); b.className = "fbody"; t.remove();
+    while (c.firstChild) b.appendChild(c.firstChild);
+    d.append(sm, b); c.replaceWith(d);
+  });
+  const g = v.querySelector('details[data-f="s-get-the-app"]'); if (g) v.appendChild(g);  // rarely needed: last
+}
 const toast = (msg) => { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => t.hidden = true, 3500); };
 const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
 function bytes(n, d = 1) { if (n == null) return "–"; const u = ["B","KB","MB","GB","TB"]; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return n.toFixed(i < 2 ? 0 : d) + " " + u[i]; }
@@ -230,10 +261,10 @@ async function renderServer() {
   if (p.online) {
     // Libraries
     const libs = p.libraries || [];
-    if (libs.length) h += `<h2>Libraries</h2><div class="card">${libs.map(l => `<div class="kv" style="padding:6px 0">
+    if (libs.length) h += fold("libs", "Libraries", libs.map(l => `<div class="kv" style="padding:6px 0">
         <span style="color:var(--text)">${esc(l.title)}${l.refreshing ? ` <span class="warn">scanning…</span>` : ""}</span>
         <span>${l.count ?? "–"} ${esc(l.unit || "")}${l.count2 != null ? ` · ${l.count2} ${esc(l.unit2)}` : ""}
-        <button class="small" style="margin-left:6px" onclick="scanLib('${esc(l.key)}')">Scan</button></span></div>`).join("")}</div>`;
+        <button class="small" style="margin-left:6px" onclick="scanLib('${esc(l.key)}')">Scan</button></span></div>`).join(""), `${libs.length} libraries`);
     // Recently added
     const rec = p.recent || [];
     if (rec.length) h += `<h2>Recently added</h2><div class="recent">${rec.map(x => `<div>
@@ -241,9 +272,18 @@ async function renderServer() {
         <div class="cap">${esc(x.parent || x.title)}</div><div class="cap meta">${x.parent ? esc(x.title) : esc(x.year || "")} · ${ago(x.added_at)}</div></div>`).join("")}</div>`;
     // History
     const hist = p.history || [];
-    if (hist.length) h += `<h2>Recently watched</h2><div class="card">${hist.map(x => `<div class="kv" style="padding:5px 0;gap:10px">
+    if (hist.length) {
+      const isAudio = x => x.type === "track";
+      const video = hist.filter(x => !isAudio(x)), audio = hist.filter(isAudio);
+      const list = (histTab === "audio" ? audio : video).slice(0, 15);
+      const chips = `<div class="chips" style="padding:0 0 8px"><button class="chip ${histTab === "video" ? "on" : ""}" onclick="histTab='video';render()">Watched ${video.length}</button>
+        <button class="chip ${histTab === "audio" ? "on" : ""}" onclick="histTab='audio';render()">Listened ${audio.length}</button></div>`;
+      const rows = list.length ? list.map(x => `<div class="kv" style="padding:5px 0;gap:10px">
         <span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.parent ? x.parent + " – " + x.title : x.title)}</span>
-        <span style="white-space:nowrap">${esc(x.user)} · ${ago(x.viewed_at)}</span></div>`).join("")}</div>`;
+        <span style="white-space:nowrap">${esc(x.user)} · ${ago(x.viewed_at)}</span></div>`).join("")
+        : `<div class="muted" style="padding:8px 0">${histTab === "audio" ? "No music played recently." : "No videos watched recently."}</div>`;
+      h += fold("hist", "History", chips + rows, "watched and listened");
+    }
   }
   setView(my, h);
 }
@@ -280,7 +320,12 @@ function releaseCard(r) {
   const cover = r.cover || `https://coverartarchive.org/release-group/${r.mbid}/front-250`;
   const info = r.url || `https://musicbrainz.org/release-group/${r.mbid}`;
   let actions = "";
-  if (r.status === "new" || r.status === "wanted" || r.status === "gap") actions = `<button class="primary small" onclick="openAdd='${r.mbid}';render()">Download</button>
+  const upcoming = r.status === "new" && (r.date || "").length >= 7 && r.date > new Date().toISOString().slice(0, 10);
+  if (upcoming) actions = `<span class="muted">Not out yet · ${esc(r.date)}</span>
+      <button class="small" onclick="setStatus('${r.mbid}','skipped')">Skip</button>
+      <a href="#" onclick="skipArtist(this.dataset.a); return false" data-a="${esc(r.artist)}">Skip this artist</a>
+      <a href="${esc(info)}" target="_blank" rel="noopener">Info</a>`;
+  else if (r.status === "new" || r.status === "wanted" || r.status === "gap") actions = `<button class="primary small" onclick="openAdd='${r.mbid}';render()">Download</button>
       ${r.status !== "wanted" ? `<button class="small" onclick="setStatus('${r.mbid}','wanted')">Later</button>` : `<button class="small" onclick="setStatus('${r.mbid}','got')">Got it</button>`}
       <button class="small" onclick="setStatus('${r.mbid}','skipped')">Skip</button>
       <a href="#" onclick="skipArtist(this.dataset.a); return false" data-a="${esc(r.artist)}">Skip this artist</a>
@@ -312,7 +357,7 @@ async function renderMusic() {
   $("#heading").textContent = "Music";
   const btn = $("#actionBtn"); btn.hidden = false; btn.textContent = "Check now";
   btn.onclick = async () => { await api("/api/check-releases", {method:"POST"}); toast("Checking for new releases…"); setTimeout(render, 1500); };
-  const [st, rows, skippedArtists] = await Promise.all([api("/api/status"), api(`/api/releases?status=${musicFilter}`), api("/api/skipped-artists")]);
+  const [st, rows, skippedArtists] = await Promise.all([api("/api/status"), api(`/api/releases?status=${musicFilter === "upcoming" ? "new&when=upcoming" : musicFilter}`), api("/api/skipped-artists")]);
   const rc = st.release_check;
   let sub = st.library_found ? `${st.artists} artists in your library` : `<span class="warn">No music folder found. Check Settings → Music folders.</span>`;
   if (rc.running) sub += ` · checking ${rc.done}/${rc.total}${rc.current ? " (" + esc(rc.current) + ")" : ""}…`;
@@ -321,9 +366,9 @@ async function renderMusic() {
   if (un.length) sub += ` · <a href="#" class="muted" onclick="showUnmatched = !showUnmatched; render(); return false">${un.length} not matched ${showUnmatched ? "▲" : "▼"}</a>`
     + (showUnmatched ? `<br><span class="muted">No match on any music source for: ${un.map(esc).join(", ")}</span>` : "");
   setSub(my, sub);
-  const chips = [["new", "New"], ["wanted", "Later"], ["gap", "Missing albums"], ["skipped", "Skipped"]]
-    .map(([k, l]) => `<button class="chip ${musicFilter === k ? "on" : ""}" onclick="musicFilter='${k}';openAdd=null;render()">${l}${(k === "new" || k === "gap") && st.release_counts[k] ? " " + st.release_counts[k] : ""}</button>`).join("");
-  const empty = {new:"No new releases right now.", wanted:"Nothing saved for later.", skipped:"Nothing skipped.", gap:"No missing albums found. Turn this on in Settings → Music."}[musicFilter];
+  const chips = [["new", "New"], ["upcoming", "Upcoming"], ["wanted", "Later"], ["gap", "Missing albums"], ["skipped", "Skipped"]]
+    .map(([k, l]) => `<button class="chip ${musicFilter === k ? "on" : ""}" onclick="musicFilter='${k}';openAdd=null;render()">${l}${(k === "new" || k === "gap" || k === "upcoming") && st.release_counts[k] ? " " + st.release_counts[k] : ""}</button>`).join("");
+  const empty = {new:"No new releases right now.", wanted:"Nothing saved for later.", skipped:"Nothing skipped.", upcoming:"No announced albums from your artists yet.", gap:"No missing albums found. Turn this on in Settings → Music."}[musicFilter];
   const skippedBox = musicFilter === "skipped" && skippedArtists.length
     ? `<h2>Skipped artists</h2><div class="stack"><div class="card"><div class="hint" style="margin-bottom:6px">These artists are not checked for new releases.</div>${skippedArtists.map(a =>
         `<div class="row" style="justify-content:space-between;gap:8px;padding:4px 0"><span>${esc(a)}</span><button class="small" data-a="${esc(a)}" onclick="unskipArtist(this.dataset.a)">Remove</button></div>`).join("")}</div></div><h2>Skipped releases</h2>` : "";
@@ -485,7 +530,7 @@ async function renderSettings() {
     <div class="hint" id="bkInfo">Checking size…</div>
     <div class="actions"><button class="small" type="button" onclick="backupNow()">Back up now</button></div>
     <div class="hint">Only the database and Preferences.xml are saved, not posters or other cache, so it stays small. Save settings first after changing the folder.</div></div>
-  <h2>Subtitle sources</h2>
+  <details class="fold" data-f="s-subtitle-sources" ${isOpen("s-subtitle-sources") ? "open" : ""}><summary><span>Subtitle sources</span></summary><div class="fbody">
   <div class="hint" style="margin:0 4px 8px">Tried from top to bottom until a subtitle is found. Use ↑ ↓ to change the order. In addresses you can use
     <code>{title}</code> <code>{year}</code> <code>{imdb}</code> <code>{lang}</code> <code>{lang_name}</code> <code>{title_slug}</code>.</div>
   <div id="srcBox" class="stack"></div>
@@ -493,8 +538,8 @@ async function renderSettings() {
     <button class="small" type="button" onclick="addSource('website')">+ Add website</button>
     <button class="small" type="button" onclick="addSource('api')">+ Add API</button>
     <select id="presetAdd" onchange="addPreset(this)" style="background:var(--line);color:var(--text);border:0;border-radius:10px;padding:7px"></select>
-  </div>
-  <div style="padding:14px 0 6px"><button class="primary" type="submit" style="width:100%">Save settings</button></div></form>
+  </div></div></details>
+  <div class="savebar"><button class="primary" type="submit" style="width:100%">Save settings</button></div></form>
   <div class="card" style="margin-top:10px"><div class="title" style="font-size:15px">Update</div>
     <div class="hint" id="verLine" style="margin:4px 0 10px">Checking version…</div>
     <label class="check"><input type="checkbox" id="updAuto" ${S.updates.auto ? "checked" : ""}>Update automatically when a new version is on GitHub</label>
@@ -507,6 +552,7 @@ async function renderSettings() {
     <div class="actions"><button class="small" type="button" onclick="control('restart')">Restart</button>
       <button class="small danger" type="button" id="stopBtn" onclick="control('stop')">Stop</button></div>
     <div class="hint">After Stop, start it again from the Server Assistant icon in the Windows tray (by the clock) or with start.bat on the server.</div></div>`;
+  foldCards();
   srcOpen = null; renderSources();
   tailnetRefresh();
   api("/api/backup").then(b => { const e = $("#bkInfo"); if (e) e.innerHTML = !b.found ? "Plex's database wasn't found on this PC."

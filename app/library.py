@@ -82,7 +82,20 @@ _EDITION_WORDS = re.compile(
 
 
 def _core(text: str) -> str:
-    return re.sub(r"\s+", " ", _EDITION_WORDS.sub(" ", text)).strip()
+    t = re.sub(r"\s+", " ", _EDITION_WORDS.sub(" ", text)).strip()
+    stripped = re.sub(r"\s+(single|ep)$", "", t)  # "Title - Single", "Title - EP"
+    return stripped or t
+
+
+def same_title(a: str, b: str) -> bool:
+    """True when two release titles (from different sources, editions, remasters) are the same record."""
+    x, y = _core(normalize(a)), _core(normalize(b))
+    if not x or not y:
+        return False
+    if x == y:
+        return True
+    short, long_ = sorted((x, y), key=len)
+    return len(short) >= 6 and long_.startswith(short + " ") and len(short) / len(long_) >= 0.45
 
 
 def is_owned(title: str, owned: set[str]) -> bool:

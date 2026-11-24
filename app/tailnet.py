@@ -12,7 +12,7 @@ import sys
 import threading
 import urllib.request
 
-from . import config
+from . import config, netfetch
 
 log = logging.getLogger("tailnet")
 EXE = "satailnet.exe" if sys.platform == "win32" else "satailnet"
@@ -32,31 +32,11 @@ class Tailnet:
         return self.exe.is_file()
 
     def _fetch(self, url: str, dest) -> str:
-        """Download with Python first; if the certificate check fails, let Windows itself do it (it trusts what Windows trusts)."""
-        errors = []
         try:
-            import requests
-            with requests.get(url, stream=True, timeout=60) as r:
-                r.raise_for_status()
-                with open(dest, "wb") as f:
-                    for chunk in r.iter_content(1 << 16):
-                        f.write(chunk)
+            netfetch.fetch_file(url, dest, timeout=60)
             return ""
         except Exception as e:
-            errors.append(str(e)[:120])
-        if sys.platform == "win32":
-            flags = subprocess.CREATE_NO_WINDOW
-            for cmd in (["curl.exe", "-L", "--fail", "-o", str(dest), url],
-                        ["powershell", "-NoProfile", "-Command",
-                         f"[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '{url}' -OutFile '{dest}'"]):
-                try:
-                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=300, creationflags=flags)
-                    if r.returncode == 0 and os.path.exists(dest) and os.path.getsize(dest) > 0:
-                        return ""
-                    errors.append((r.stderr or r.stdout)[-120:])
-                except Exception as e:
-                    errors.append(str(e)[:120])
-        return " | ".join(errors)
+            return str(e)[:240]
 
     def download(self, url: str):
         self.exe.parent.mkdir(parents=True, exist_ok=True)

@@ -121,7 +121,17 @@ func main() {
 			return
 		}
 		go func(c net.Conn) {
-			r, err := s.Dial(ctx, "tcp", fmt.Sprintf("%s:%d", *remote, *port))
+			var r net.Conn
+			var err error
+			for try := 0; try < 4; try++ { // the first connections after start-up can take a moment
+				dctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+				r, err = s.Dial(dctx, "tcp", fmt.Sprintf("%s:%d", *remote, *port))
+				cancel()
+				if err == nil {
+					break
+				}
+				time.Sleep(time.Duration(try+1) * 500 * time.Millisecond)
+			}
 			if err != nil {
 				c.Close()
 				return

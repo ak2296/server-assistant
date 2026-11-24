@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from . import backup, tailnet, discovery, library, plex, plexlib, qbit, releases, sorter, subsources, subtitles, system, torrent
+from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, releases, sorter, subsources, subtitles, system, torrent
 from .config import DATA, ROOT, VERSION, load_config, save_config
 from .db import DB
 
@@ -204,6 +204,15 @@ def index():
     return FileResponse(STATIC / "index.html")
 
 
+@app.middleware("http")
+async def _slow_log(request, call_next):
+    t0 = time.time()
+    resp = await call_next(request)
+    if time.time() - t0 > 2 and request.url.path.startswith("/api/"):
+        log.info("slow request: %s took %.1fs", request.url.path, time.time() - t0)
+    return resp
+
+
 @app.get("/api/ping")
 def ping():
     """Used by the finder page and the phone app to recognise this server (open to any page on the network)."""
@@ -320,19 +329,38 @@ def pc_installer(request: Request):
                     headers={"Content-Disposition": 'attachment; filename="Install Server Assistant.bat"'})
 
 
+def _scan_library():
+    lib = state.cfg["music"]["roots"]
+    try:
+        info = {"library": lib, "library_found": any(Path(x).is_dir() for x in lib),
+                "artists": len(library.list_artists(lib))}
+        state.lib_info, state.lib_info_at = info, time.time()
+    finally:
+        state.lib_scanning = False
+
+
 def _library_info() -> dict:
-    """Scanning a big music folder can take seconds on a hard drive: do it at most every 30 s."""
-    if time.time() - state.lib_info_at > 30 or not state.lib_info:
-        lib = state.cfg["music"]["roots"]
-        state.lib_info = {"library": lib, "library_found": any(Path(x).is_dir() for x in lib),
-                          "artists": len(library.list_artists(lib))}
-        state.lib_info_at = time.time()
-    return state.lib_info
+    """Never make the page wait for a folder scan: answer with the last result and refresh it in the background."""
+    stale = time.time() - state.lib_info_at > 30
+    if stale and not getattr(state, "lib_scanning", False):
+        state.lib_scanning = True
+        t = threading.Thread(target=_scan_library, daemon=True)
+        t.start()
+        if not state.lib_info:
+            t.join(2.5)  # only the very first call waits, and only briefly
+    return state.lib_info or {"library": state.cfg["music"]["roots"], "library_found": True, "artists": 0}
+
+
+def _today() -> str:
+    return time.strftime("%Y-%m-%d")
 
 
 @app.get("/api/status")
 def status():
     counts = {r["status"]: r["n"] for r in state.db.query("SELECT status, COUNT(*) n FROM releases GROUP BY status")}
+    up = state.db.query("SELECT COUNT(*) n FROM releases WHERE status='new' AND length(date)>=7 AND date > ?", (_today(),))[0]["n"]
+    counts["upcoming"] = up
+    counts["new"] = max(0, counts.get("new", 0) - up)
     return {
         **_library_info(),
         "unmatched_artists": [r["folder"] for r in state.db.query("SELECT folder FROM artists WHERE mbid='' AND folder NOT IN (SELECT artist FROM releases)")],
@@ -345,12 +373,18 @@ def status():
 
 
 @app.get("/api/releases")
-def list_releases(status: str = "new"):
+def list_releases(status: str = "new", when: str = ""):
+    """when=upcoming: not released yet. For status=new without `when`, only albums that are already out."""
     statuses = status.split(",")
     marks = ",".join("?" * len(statuses))
-    return state.db.query(
-        f"SELECT * FROM releases WHERE status IN ({marks}) ORDER BY date DESC, artist", statuses
-    )
+    rows = state.db.query(f"SELECT * FROM releases WHERE status IN ({marks}) ORDER BY date DESC, artist", statuses)
+    if statuses == ["new"]:
+        today = _today()
+        future = lambda r: len(r["date"] or "") >= 7 and r["date"] > today
+        rows = [r for r in rows if future(r)] if when == "upcoming" else [r for r in rows if not future(r)]
+        if when == "upcoming":
+            rows.sort(key=lambda r: r["date"])
+    return rows
 
 
 class StatusBody(BaseModel):
@@ -837,10 +871,8 @@ def _vtuple(v: str) -> tuple:
 def latest_release(cfg: dict) -> dict:
     """What the GitHub release says is the newest version, and where to download it."""
     u = cfg["updates"]
-    r = requests.get(f"https://api.github.com/repos/{u['repo']}/releases/tags/{u['tag']}", timeout=15,
-                     headers={"Accept": "application/vnd.github+json"})
-    r.raise_for_status()
-    j = r.json()
+    j = netfetch.fetch_json(f"https://api.github.com/repos/{u['repo']}/releases/tags/{u['tag']}",
+                            {"Accept": "application/vnd.github+json"})
     asset = next((a for a in j.get("assets", []) if a["name"] == "ServerAssistant.zip"), None)
     version = (j.get("name") or j.get("tag_name") or "").lstrip("v ")
     return {"version": version, "url": asset["browser_download_url"] if asset else "", "published": j.get("published_at", "")}
@@ -857,7 +889,10 @@ def _install_latest(cfg: dict) -> dict:
     info = latest_release(cfg)
     if not info["url"] or _vtuple(info["version"]) <= _vtuple(VERSION):
         return {"updated": False, "latest": info["version"]}
-    raw = requests.get(info["url"], timeout=120).content
+    tmp = DATA / "update.zip.part"
+    netfetch.fetch_file(info["url"], tmp)
+    raw = tmp.read_bytes()
+    tmp.unlink(missing_ok=True)
     r = _apply_update(raw)
     return {"updated": True, "latest": info["version"], **r}
 

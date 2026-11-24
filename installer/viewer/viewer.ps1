@@ -31,8 +31,14 @@ function Alive($url) {
 }
 
 # 1. At home: the server answers directly.
-foreach ($u in @("http://$name.local:8765", "http://${name}:8765")) {
-  if (Alive $u) { Open-App $u; exit 0 }
+foreach ($h in @("$name.local", $name)) {
+  if (Alive "http://${h}:8765") {
+    # Open by IP address: name lookups on a home network (mDNS) are slow and sometimes fail, which shows up as "Failed to fetch".
+    $ip = $null
+    try { $ip = ([System.Net.Dns]::GetHostAddresses($h) | Where-Object { $_.AddressFamily -eq "InterNetwork" } | Select-Object -First 1).IPAddressToString } catch {}
+    if ($ip -and (Alive "http://${ip}:8765")) { Open-App "http://${ip}:8765" } else { Open-App "http://${h}:8765" }
+    exit 0
+  }
 }
 
 # 2. Away from home: go through the private network.

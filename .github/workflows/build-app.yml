@@ -28,7 +28,7 @@ jobs:
           bash installer/build.sh
           cp ../ServerAssistant-Setup.exe ../ServerAssistant-Viewer-Setup.exe .
           mkdir ServerAssistant-Viewer
-          cp installer/viewer/viewer.ps1 installer/viewer/favicon.ico installer/viewer/Install-Viewer.bat ServerAssistant-Viewer/
+          cp installer/viewer/viewer.ps1 installer/viewer/favicon.ico installer/viewer/Install-Viewer.bat installer/viewer/Install-Viewer.ps1 ServerAssistant-Viewer/
           sed -i 's/$/\r/' ServerAssistant-Viewer/Install-Viewer.bat
           zip -qr ServerAssistant-Viewer.zip ServerAssistant-Viewer
       - name: Publish as the newest version

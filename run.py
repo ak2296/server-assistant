@@ -1,4 +1,9 @@
 """Start Server Assistant: python run.py"""
+try:
+    import truststore
+    truststore.inject_into_ssl()  # trust what Windows trusts (antivirus / filtered networks)
+except Exception:
+    pass
 import logging
 
 import uvicorn

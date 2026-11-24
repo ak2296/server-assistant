@@ -841,7 +841,7 @@ def latest_release(cfg: dict) -> dict:
                      headers={"Accept": "application/vnd.github+json"})
     r.raise_for_status()
     j = r.json()
-    asset = next((a for a in j.get("assets", []) if a["name"].endswith(".zip")), None)
+    asset = next((a for a in j.get("assets", []) if a["name"] == "ServerAssistant.zip"), None)
     version = (j.get("name") or j.get("tag_name") or "").lstrip("v ")
     return {"version": version, "url": asset["browser_download_url"] if asset else "", "published": j.get("published_at", "")}
 

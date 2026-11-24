@@ -24,6 +24,10 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq nsis
           bash installer/build.sh
           cp ../ServerAssistant-Setup.exe ../ServerAssistant-Viewer-Setup.exe .
+          mkdir ServerAssistant-Viewer
+          cp installer/viewer/viewer.ps1 installer/viewer/favicon.ico installer/viewer/Install-Viewer.bat ServerAssistant-Viewer/
+          sed -i 's/$/\r/' ServerAssistant-Viewer/Install-Viewer.bat
+          zip -qr ServerAssistant-Viewer.zip ServerAssistant-Viewer
       - name: Publish as the newest version
         uses: softprops/action-gh-release@v2
         with:
@@ -34,3 +38,4 @@ jobs:
             ServerAssistant.zip
             ServerAssistant-Setup.exe
             ServerAssistant-Viewer-Setup.exe
+            ServerAssistant-Viewer.zip

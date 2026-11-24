@@ -17,7 +17,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
-from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, releases, sorter, subsources, subtitles, system, torrent, unseen
+from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, releases, sorter, subsources, subtitles, system, torrent, unseen, repair
 from .config import DATA, ROOT, VERSION, load_config, save_config
 from .db import DB
 
@@ -503,34 +503,20 @@ _RECENT = {"at": 0.0, "data": {"audio": [], "video": []}}
 
 @app.get("/api/downloads/fix-log")
 def fix_downloader_log():
-    """What the repair did and which Python the server runs now, so it can be read from the dashboard."""
-    log_file = ROOT / "fix-downloader.log"
-    tail = ""
-    if log_file.exists():
-        raw = log_file.read_bytes()
-        for enc in ("utf-16", "utf-8"):  # PowerShell transcripts can be either
-            try:
-                text = raw.decode(enc)
-                if "Done" in text or "ERROR" in text or "Looking" in text:
-                    tail = "\n".join(text.splitlines()[-40:])
-                    break
-            except Exception:
-                continue
-        else:
-            tail = raw.decode("utf-8", "replace")[-3000:]
+    """Which Python the server runs and how the repair is going (read from the dashboard)."""
     return {"python": sys.version.split()[0], "bits": 64 if sys.maxsize > 2**32 else 32, "environment": sys.prefix,
-            "libtorrent": torrent.LT_STATE, "log": tail, "old_environments": sorted(p.name for p in ROOT.glob(".venv-old-*"))}
+            "libtorrent": torrent.LT_STATE, "running": repair.STATE["running"], "done": repair.STATE["done"],
+            "error": repair.STATE["error"], "log": "\n".join(repair.STATE["lines"]),
+            "old_environments": sorted(p.name for p in ROOT.glob(".venv-old*"))}
 
 
 @app.post("/api/downloads/fix")
 def fix_downloader():
     """Rebuild the program's environment on Python 3.13 so the built-in downloader (libtorrent) works. Windows only."""
-    script = ROOT / "fix-downloader.ps1"
-    if sys.platform != "win32" or not script.exists():
+    if sys.platform != "win32":
         raise HTTPException(400, "This repair is only available in the Windows program.")
-    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-    subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", str(script)],
-                     creationflags=flags, close_fds=True)
+    if not repair.start(ROOT):
+        raise HTTPException(409, "The repair is already running.")
     return {"ok": True}
 
 

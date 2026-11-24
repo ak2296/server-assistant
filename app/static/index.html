@@ -382,12 +382,15 @@ async function fixDetails() {
   try {
     const d = await api("/api/downloads/fix-log");
     e.textContent = `Python in use: ${d.python} (${d.bits}-bit)\nProgram environment: ${d.environment}\nlibtorrent: ${d.libtorrent.state}${d.libtorrent.detail ? " - " + d.libtorrent.detail : ""}\n`
-      + (d.old_environments.length ? `Old environments left: ${d.old_environments.join(", ")}\n` : "") + (d.log ? `\n--- repair log ---\n${d.log}` : "\n(no repair log yet)");
+      + (d.old_environments.length ? `Old environments left: ${d.old_environments.join(", ")}\n` : "")
+      + (d.running ? "\nThe repair is running. The app stays usable until the very end." : d.done ? "\nDone. The app restarts now." : d.error ? `\nThe repair stopped: ${d.error}` : "")
+      + (d.log ? `\n\n--- repair log ---\n${d.log}` : "\n\n(the repair has not been started)");
     e.hidden = false;
+    if (d.running) setTimeout(fixDetails, 3000);  // follow the progress
   } catch (x) { e.textContent = x.message; e.hidden = false; }
 }
 async function fixDownloader() {
-  try { await api("/api/downloads/fix", {method:"POST"}); toast("Repairing… the app will restart. Reload this page in a few minutes."); } catch (e) { toast(e.message); }
+  try { await api("/api/downloads/fix", {method:"POST"}); toast("Repair started. Watch the details below."); fixDetails(); } catch (e) { toast(e.message); }
 }
 async function sendUnseen(folder) {
   try { const r = await api("/api/library/unseen/send", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(folder ? {folders:[folder]} : {})});

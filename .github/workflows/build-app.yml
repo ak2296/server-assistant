@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["app/**", "run.py", "tray.py", "appwindow.py", "fix-downloader.ps1", "requirements*.txt", "config.example.toml", "README.md", "VERSION", "installer/**", "android-source/**", "tailnet-helper/**"]
+    paths: ["app/**", "run.py", "tray.py", "appwindow.py", "requirements*.txt", "config.example.toml", "README.md", "VERSION", "installer/**", "android-source/**", "tailnet-helper/**"]
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -29,7 +29,7 @@ jobs:
         run: |
           VER=$(cat VERSION | tr -d '[:space:]')
           mkdir -p ServerAssistant
-          cp -r app run.py tray.py appwindow.py fix-downloader.ps1 requirements.txt requirements-optional.txt config.example.toml README.md VERSION ServerAssistant/
+          cp -r app run.py tray.py appwindow.py requirements.txt requirements-optional.txt config.example.toml README.md VERSION ServerAssistant/
           find ServerAssistant -name __pycache__ -prune -exec rm -rf {} +
           zip -qr ServerAssistant.zip ServerAssistant
           cp start.bat ServerAssistant/

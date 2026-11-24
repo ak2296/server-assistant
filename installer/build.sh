@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 rm -rf installer/stage && mkdir -p installer/stage
-cp -r app run.py tray.py appwindow.py fix-downloader.ps1 requirements.txt requirements-optional.txt config.example.toml README.md VERSION installer/stage/
+cp -r app run.py tray.py appwindow.py requirements.txt requirements-optional.txt config.example.toml README.md VERSION installer/stage/
 find installer/stage -name __pycache__ -prune -exec rm -rf {} +
 rm -f installer/stage/app/*.db
 cd installer

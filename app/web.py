@@ -16,7 +16,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, releases, sorter, subsources, subtitles, system, torrent
+from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, releases, sorter, subsources, subtitles, system, torrent, unseen
 from .config import DATA, ROOT, VERSION, load_config, save_config
 from .db import DB
 
@@ -37,6 +37,7 @@ class State:
         self.plex_details_at = 0.0
         self.details_busy = False
         self.subscan = plexlib.SubScan(self.db, self.plex)
+        self.unseen = unseen.Unseen(self.plex, DATA)
         self.backup_busy = False
         self.tailnet = tailnet.Tailnet()
         self.ov, self.ov_at = {}, 0.0          # short-lived cache of the Plex overview
@@ -106,6 +107,7 @@ class State:
     def rebuild_clients(self):
         self.plex = plex.Plex(self.cfg)
         self.subscan.plex = self.plex
+        self.unseen.plex = self.plex
         self.qbit = self.make_downloader()
         self.qbit_error = self.dl_problem
         self.monitor.drives = [d.rstrip("\\/").upper() for d in self.cfg["system"]["drives"]]
@@ -177,6 +179,10 @@ def _plex_library_loop(st: State):
                 releases.PLEX_ALBUMS = st.plex.music_albums()
             except Exception as e:
                 log.info("Couldn't read albums from Plex: %s", e)
+            try:
+                st.unseen.run()
+            except Exception:
+                log.exception("Check for new files crashed")
             if n % 4 == 0:  # walks every movie: only every 12 hours
                 try:
                     st.subscan.run()
@@ -454,6 +460,38 @@ def subtitle_gaps():
 @app.post("/api/library/scan-subtitles")
 def scan_subtitles_now():
     threading.Thread(target=state.subscan.run, daemon=True).start()
+    return {"ok": True}
+
+
+@app.get("/api/library/unseen")
+def unseen_files():
+    """Video and audio files in the library folders that Plex doesn't know yet."""
+    f = state.unseen.folders()
+    return {"folders": f[:200], "count": sum(len(g["files"]) for g in f), "progress": state.unseen.progress}
+
+
+@app.post("/api/library/unseen/check")
+def unseen_check(days: int = 14):
+    threading.Thread(target=state.unseen.run, args=(max(1, min(days, 365)),), daemon=True).start()
+    return {"ok": True}
+
+
+@app.post("/api/library/unseen/send")
+async def unseen_send(request: Request):
+    """Ask Plex to scan only these folders (or all listed ones), not the whole library."""
+    body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+    try:
+        n = state.unseen.send(body.get("folders"))
+    except Exception as e:
+        raise HTTPException(502, f"Plex didn't accept the scan: {e}")
+    threading.Timer(45, state.unseen.run).start()  # check again once Plex has had time to read them
+    return {"ok": True, "folders": n}
+
+
+@app.post("/api/library/unseen/ignore")
+async def unseen_ignore(request: Request):
+    body = await request.json()
+    state.unseen.ignore(body.get("folder", ""))
     return {"ok": True}
 
 

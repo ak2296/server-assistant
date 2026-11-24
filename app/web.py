@@ -218,7 +218,8 @@ app = FastAPI(title="Server Assistant", lifespan=lifespan)
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    # no-cache = always check for a newer page, so an updated server shows its new screens right away (also in the Viewer window)
+    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 @app.middleware("http")

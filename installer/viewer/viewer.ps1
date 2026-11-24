@@ -49,6 +49,8 @@ if (-not (Test-Path $exe)) {
 }
 # A helper from an earlier launch may still be holding the port (for example while it waited for the Tailscale sign-in): stop it first.
 Get-Process -Name satailnet | Where-Object { $_.Path -eq $exe } | Stop-Process -Force
+# ...or by whoever holds port 8766 (a helper started by an older launcher from another folder)
+Get-NetTCPConnection -LocalPort 8766 -State Listen | ForEach-Object { $p = Get-Process -Id $_.OwningProcess; if ($p -and $p.ProcessName -eq "satailnet") { $p | Stop-Process -Force } }
 Start-Sleep -Milliseconds 800
 $log = Join-Path $data "helper.log"
 Remove-Item $log -ErrorAction SilentlyContinue

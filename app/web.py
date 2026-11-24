@@ -1,4 +1,6 @@
 """Background jobs + the phone dashboard (FastAPI)."""
+import asyncio
+import json
 import logging
 import os
 import re
@@ -6,6 +8,7 @@ import requests
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -37,6 +40,7 @@ class State:
         self.backup_busy = False
         self.tailnet = tailnet.Tailnet()
         self.ov, self.ov_at = {}, 0.0          # short-lived cache of the Plex overview
+        self.ov_lock = threading.Lock()
         self.lib_info, self.lib_info_at = {}, 0.0  # cache of the (slow) music library scan
         self.sorter = sorter.Sorter(self.db, self.cfg, on_sorted=self.after_sort)
         self.sources_path = DATA / "subtitle_sources.json"
@@ -48,7 +52,11 @@ class State:
             subsources.save_sources(self.sources_path, self.sources)
         self.plex_folders = {"artist": [], "movie": [], "show": []}
         self.paths_at = 0.0
-        self.resolve_paths()
+        try:  # last known Plex folders, so start-up never waits for Plex
+            self.plex_folders = json.loads((DATA / "plex_folders.json").read_text())
+        except Exception:
+            pass
+        self.resolve_paths(fetch=False)
         self.stop = threading.Event()
         self.release_progress = {"running": False, "current": "", "done": 0, "total": 0, "last_run": None}
         self.subs_progress = {"running": False, "last_run": None, "last_count": 0}
@@ -56,11 +64,12 @@ class State:
         self.kick_subs = threading.Event()
 
 
-    def resolve_paths(self):
+    def resolve_paths(self, fetch: bool = True):
         """Work out the real music/movie folders: from Plex ("auto") or the custom list."""
-        if self.plex.configured:
+        if fetch and self.plex.configured:
             try:
                 self.plex_folders = self.plex.folders()
+                (DATA / "plex_folders.json").write_text(json.dumps(self.plex_folders))
             except Exception as e:
                 log.info("Couldn't read folders from Plex: %s", e)
 
@@ -160,17 +169,20 @@ def _sorter_loop(st: State):
 
 def _plex_library_loop(st: State):
     """Every few hours: which albums Plex has, which movies lack subtitles, and the optional backup."""
-    time.sleep(20)
+    st.stop.wait(120)  # let the dashboard and Plex settle after start-up first
+    n = 0
     while not st.stop.is_set():
         if st.plex.configured:
             try:
                 releases.PLEX_ALBUMS = st.plex.music_albums()
             except Exception as e:
                 log.info("Couldn't read albums from Plex: %s", e)
-            try:
-                st.subscan.run()
-            except Exception:
-                log.exception("Subtitle scan crashed")
+            if n % 4 == 0:  # walks every movie: only every 12 hours
+                try:
+                    st.subscan.run()
+                except Exception:
+                    log.exception("Subtitle scan crashed")
+        n += 1
         try:
             b = st.cfg["backup"]
             if b.get("enabled") and b.get("folder"):
@@ -192,6 +204,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=state.monitor.run_forever, args=(state.stop,), daemon=True).start()
     threading.Thread(target=discovery.advertise, args=(int(state.cfg["server"]["port"]),), daemon=True).start()
     threading.Thread(target=state.tailnet.start, args=(state.cfg,), daemon=True).start()
+    threading.Thread(target=state.resolve_paths, daemon=True).start()  # ask Plex for folders in the background
     yield
     state.tailnet.stop()
     discovery.stop()
@@ -594,9 +607,15 @@ def _refresh_details():
 @app.get("/api/server")
 def server_overview():
     now = time.time()
-    if now - state.ov_at > 3:  # many tabs/phones polling share one answer
-        state.ov, state.ov_at = state.plex.overview(), now
-    overview = state.ov
+    if now - state.ov_at > 3:  # many tabs/phones polling share one answer, computed by one request at a time
+        if state.ov_lock.acquire(blocking=not state.ov):
+            try:
+                if time.time() - state.ov_at > 3:
+                    state.ov, state.ov_at = state.plex.overview(), time.time()
+            finally:
+                state.ov_lock.release()
+        # else: someone is already asking Plex; answer with the last result instead of piling on
+    overview = state.ov or {"configured": state.plex.configured, "online": False}
     # slow Plex data (libraries, history, update check...) refreshes in the background, never in the request
     if overview.get("online") and now - state.plex_details_at > 60 and not state.details_busy:
         state.details_busy = True
@@ -606,15 +625,25 @@ def server_overview():
             "app": {"version": VERSION, "uptime": time.time() - STARTED, "update": UPDATE_INFO, "auto": bool(state.cfg["updates"].get("auto"))}}
 
 
+_THUMB_POOL = ThreadPoolExecutor(3, thread_name_prefix="thumb")  # posters must never use up the threads the pages need
+_THUMBS: dict = {}
+
+
 @app.get("/api/plex/thumb")
-def plex_thumb(path: str, w: int = 240):
+async def plex_thumb(path: str, w: int = 240):
     if not path.startswith("/library/"):
         raise HTTPException(400, "bad path")
-    try:
-        content, ctype = state.plex.thumb(path, min(w, 600))
-    except Exception:
-        raise HTTPException(404, "no image")
-    return Response(content, media_type=ctype, headers={"Cache-Control": "max-age=86400"})
+    key = (path, min(w, 600))
+    hit = _THUMBS.get(key)
+    if not hit:
+        try:
+            hit = await asyncio.get_running_loop().run_in_executor(_THUMB_POOL, state.plex.thumb, path, min(w, 600))
+        except Exception:
+            raise HTTPException(404, "no image")
+        if len(_THUMBS) > 300:
+            _THUMBS.pop(next(iter(_THUMBS)))
+        _THUMBS[key] = hit
+    return Response(hit[0], media_type=hit[1], headers={"Cache-Control": "max-age=86400"})
 
 
 @app.post("/api/plex/scan")

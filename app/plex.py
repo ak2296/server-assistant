@@ -64,7 +64,7 @@ class Plex:
         return bool(self.token)
 
     def get(self, path: str, **params) -> dict:
-        r = self.s.get(f"{self.url}{path}", params=params, timeout=10)
+        r = self.s.get(f"{self.url}{path}", params=params, timeout=6)
         r.raise_for_status()
         if not r.content:
             return {}
@@ -253,6 +253,7 @@ class Plex:
         for i, m in enumerate(movies, 1):
             if stop is not None and stop.is_set():
                 break
+            time.sleep(0.03)  # be gentle: this walks every movie, don't slow Plex down for people watching
             if progress:
                 progress(i, len(movies))
             langs, path = set(), ""

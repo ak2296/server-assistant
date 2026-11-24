@@ -457,6 +457,40 @@ def scan_subtitles_now():
     return {"ok": True}
 
 
+SUB_EXT = {".srt", ".ass", ".ssa", ".vtt", ".sub"}
+
+
+@app.post("/api/library/add-subtitle")
+async def add_subtitle(key: str = Form(...), lang: str = Form(...), file: UploadFile = File(...)):
+    """Attach a subtitle file whose name doesn't match the movie: it is saved next to the movie with the right name
+    (<movie file>.<lang>.srt) so Plex picks it up, then Plex is asked to rescan that folder."""
+    rows = state.db.query("SELECT * FROM movie_subs WHERE rating_key=?", (key,))
+    if not rows or not rows[0]["path"]:
+        raise HTTPException(404, "That movie isn't in the list. Rescan and try again.")
+    lang = (lang or "").strip().lower()
+    if not re.fullmatch(r"[a-z]{2,3}", lang):
+        raise HTTPException(400, "Choose a language.")
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in SUB_EXT:
+        raise HTTPException(400, "Choose a subtitle file (.srt, .ass, .vtt or .sub).")
+    data = await file.read()
+    if not data or len(data) > 5_000_000:
+        raise HTTPException(400, "That file is empty or too big for a subtitle.")
+    video = Path(rows[0]["path"])
+    if not video.parent.is_dir():
+        raise HTTPException(400, f"The movie's folder isn't reachable from this PC: {video.parent}")
+    dest = video.with_name(f"{video.stem}.{lang}{ext}")
+    dest.write_bytes(data)
+    langs = [x for x in (rows[0]["langs"] or "").split(",") if x] + [lang]
+    state.db.execute("UPDATE movie_subs SET langs=? WHERE rating_key=?", (",".join(sorted(set(langs))), key))
+    scanned = False
+    try:
+        scanned = bool(state.plex.scan_path(video.parent))
+    except Exception as e:
+        log.warning("Plex rescan after adding a subtitle failed: %s", e)
+    return {"ok": True, "saved": dest.name, "plex_rescan": scanned}
+
+
 @app.get("/api/summary")
 def weekly_summary():
     """What happened in the last 7 days."""

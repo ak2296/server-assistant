@@ -56,7 +56,7 @@ class SubScan:
             langs = [x for x in (r["langs"] or "").split(",") if x]
             lack = [l for l in languages if not has_lang(langs, l)]
             if lack:
-                missing.append({"title": r["title"], "year": r["year"], "missing": lack, "have": langs})
+                missing.append({"key": r["rating_key"], "title": r["title"], "year": r["year"], "missing": lack, "have": langs})
         return {"total": len(rows), "missing": missing, "progress": self.progress}
 
 

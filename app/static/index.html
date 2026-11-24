@@ -467,6 +467,17 @@ async function renderDownloads() {
 async function cancelDl(hash) { await api(`/api/downloads/${hash}`, {method:"DELETE"}); toast("Download cancelled"); render(); }
 
 /* ---------------- SUBTITLES ---------------- */
+function pickSub(key, lang) {  // attach a subtitle file whose name doesn't match the movie
+  const i = document.createElement("input"); i.type = "file"; i.accept = ".srt,.ass,.ssa,.vtt,.sub";
+  i.onchange = async () => {
+    if (!i.files[0]) return;
+    const f = new FormData(); f.append("key", key); f.append("lang", lang); f.append("file", i.files[0]);
+    toast("Adding subtitle…");
+    try { const r = await api("/api/library/add-subtitle", {method:"POST", body:f}); toast(`Saved as ${r.saved}` + (r.plex_rescan ? "" : " (Plex will see it at its next scan)")); render(); }
+    catch (e) { toast(e.message); }
+  };
+  i.click();
+}
 async function renderSubs() {
   const my = seq;
   $("#heading").textContent = "Subtitles";
@@ -476,7 +487,7 @@ async function renderSubs() {
   const s = st.subtitles;
   const gapBox = gaps && gaps.total ? `<h2>Missing in Plex <span class="muted" style="font-weight:400">${gaps.missing.length} of ${gaps.total} movies</span></h2>
     <div class="card"><div class="actions" style="margin:0 0 6px"><button class="small" onclick="api('/api/library/scan-subtitles',{method:'POST'}).then(()=>{toast('Scanning Plex…');setTimeout(render,2500)})">${gaps.progress.running ? "Scanning " + gaps.progress.done + "/" + gaps.progress.total : "Rescan"}</button></div>
-      ${gaps.missing.length ? gaps.missing.slice(0, 60).map(g => `<div class="kv" style="padding:4px 0;gap:10px"><span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.title)}${g.year ? " (" + g.year + ")" : ""}</span><span style="white-space:nowrap">needs ${esc(g.missing.join(", "))}</span></div>`).join("") + (gaps.missing.length > 60 ? `<div class="hint">+${gaps.missing.length - 60} more</div>` : "") : `<div class="ok">Every movie has the languages you want.</div>`}</div><h2>Activity</h2>` : "";
+      ${gaps.missing.length ? gaps.missing.slice(0, 60).map(g => `<div class="kv" style="padding:4px 0;gap:10px"><span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.title)}${g.year ? " (" + g.year + ")" : ""}</span><span style="white-space:nowrap">needs ${esc(g.missing.join(", "))}</span><button class="small" onclick="pickSub('${esc(g.key)}','${esc(g.missing[0])}')">Add file</button></div>`).join("") + (gaps.missing.length > 60 ? `<div class="hint">+${gaps.missing.length - 60} more</div>` : "") : `<div class="ok">Every movie has the languages you want.</div>`}</div><h2>Activity</h2>` : "";
   setSub(my, !s.enabled ? `<span class="warn">Subtitles are off. Turn them on in Settings.</span>`
     : s.running ? "Searching…" : s.last_run ? `Last check ${esc(s.last_run)} · ${s.last_count} downloaded` : "");
   const label = {downloaded:"✓ Downloaded", not_found:"– None found yet", error:"✗ Error"};

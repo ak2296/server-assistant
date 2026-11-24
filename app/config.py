@@ -46,7 +46,7 @@ def load_config(path: str | Path | None = None) -> dict:
     up.setdefault("auto", True)
     up.setdefault("repo", "ak2296/server-assistant")
     up.setdefault("tag", "app-latest")
-    up.setdefault("every_minutes", 30)
+    up.setdefault("every_minutes", 10)
     t = cfg.setdefault("tailnet", {})
     t.setdefault("enabled", False)
     t.setdefault("mode", "serve")          # serve = this is the server PC; connect = another PC

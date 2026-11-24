@@ -47,6 +47,9 @@ if (-not (Test-Path $exe)) {
   try { Invoke-WebRequest -Uri $helperUrl -OutFile $exe -UseBasicParsing }
   catch { Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show("Could not download the connection helper. Check your internet and try again."); exit 1 }
 }
+# A helper from an earlier launch may still be holding the port (for example while it waited for the Tailscale sign-in): stop it first.
+Get-Process -Name satailnet | Where-Object { $_.Path -eq $exe } | Stop-Process -Force
+Start-Sleep -Milliseconds 800
 $log = Join-Path $data "helper.log"
 Remove-Item $log -ErrorAction SilentlyContinue
 $key = Join-Path $data "authkey.txt"

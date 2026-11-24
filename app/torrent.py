@@ -61,7 +61,7 @@ class BuiltinClient:
         except ImportError as e:
             st = LT_STATE["state"]
             why = (" Reason: " + LT_STATE["detail"]) if LT_STATE["detail"] else ""
-            raise RuntimeError("The built-in downloader is still being installed. Try again in a minute." + why if st == "installing"
+            raise RuntimeError("The built-in downloader is still being installed. Try again in a minute." + why if st in ("installing", "unknown")
                                else "The built-in downloader needs the 'libtorrent' component and could not install it." + why
                                + " (Or pick qBittorrent in Settings.)") from e
         self.lt = lt

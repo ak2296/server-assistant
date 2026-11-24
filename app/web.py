@@ -207,6 +207,23 @@ def _plex_library_loop(st: State):
         st.stop.wait(3 * 3600)
 
 
+def _prepare_downloader():
+    """The downloader was created before libtorrent could be installed: install it, then start the downloader again."""
+    try:
+        torrent.ensure_libtorrent()
+        if torrent.LT_STATE["state"] == "ok" and not isinstance(state.qbit, torrent.BuiltinClient) \
+                and state.cfg["qbittorrent"].get("engine", "builtin") == "builtin":
+            state.qbit = state.make_downloader()
+            state.qbit_error = state.dl_problem
+            log.info("Built-in downloader started")
+        elif torrent.LT_STATE["state"] == "failed":
+            state.dl_problem = ("The built-in downloader needs the 'libtorrent' component and could not install it. Reason: "
+                                + torrent.LT_STATE["detail"] + " (Or pick qBittorrent in Settings.)")
+            state.qbit_error = state.dl_problem
+    except Exception:
+        log.exception("Preparing the downloader failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global state
@@ -217,7 +234,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=discovery.advertise, args=(int(state.cfg["server"]["port"]),), daemon=True).start()
     threading.Thread(target=state.tailnet.start, args=(state.cfg,), daemon=True).start()
     threading.Thread(target=state.resolve_paths, daemon=True).start()  # ask Plex for folders in the background
-    threading.Thread(target=torrent.ensure_libtorrent, daemon=True).start()
+    threading.Thread(target=_prepare_downloader, daemon=True).start()
     yield
     state.tailnet.stop()
     discovery.stop()

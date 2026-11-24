@@ -47,7 +47,7 @@ def load_config(path: str | Path | None = None) -> dict:
     t.setdefault("mode", "serve")          # serve = this is the server PC; connect = another PC
     t.setdefault("name", "serverassistant")  # the server's name on your private network
     t.setdefault("authkey", "")
-    t.setdefault("helper_url", "")
+    t.setdefault("helper_url", "https://github.com/ak2296/server-assistant/releases/download/helper-latest/satailnet.exe")
     b = cfg.setdefault("backup", {})
     b.setdefault("enabled", False)
     b.setdefault("folder", "")

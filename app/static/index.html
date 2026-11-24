@@ -473,7 +473,7 @@ async function renderSettings() {
       <label class="check"><input type="radio" name="tnMode" value="connect" ${S.tailnet.mode === "connect" ? "checked" : ""}>Another PC that opens the dashboard</label></div>
     <div class="field"><label class="l">Server name on the network</label><input type="text" id="tnName" value="${esc(S.tailnet.name)}"></div>
     <div class="field"><label class="l">Sign-in key (optional, from Tailscale → Settings → Keys)</label><input type="text" id="tnKey" value="${esc(S.tailnet.authkey)}" autocomplete="off" style="-webkit-text-security:disc"><div class="hint">Leave empty to sign in with a link instead.</div></div>
-    <div class="field"><label class="l">Helper download address</label><input type="text" id="tnUrl" value="${esc(S.tailnet.helper_url)}" placeholder="https://github.com/…/releases/latest/download/satailnet.exe"></div>
+    <div class="field"><label class="l">Helper download address</label><input type="text" id="tnUrl" value="${esc(S.tailnet.helper_url)}"></div>
     <div class="hint" id="tnInfo">Checking…</div>
     <div class="actions"><button class="small" type="button" onclick="tailnetInstall()">Download helper</button><button class="small" type="button" onclick="tailnetRestart()">Connect</button></div>
     <div class="hint">Save settings first after changing anything here. It only forwards the dashboard's own port and never touches Plex.</div></div>

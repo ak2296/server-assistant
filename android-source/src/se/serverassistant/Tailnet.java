@@ -64,6 +64,29 @@ final class Tailnet {
         }
     }
 
+    /** The phone's network interfaces, for the helper (Android stops a plain program from listing them itself). */
+    private static String ifaceSpec() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            for (java.util.Enumeration<java.net.NetworkInterface> e = java.net.NetworkInterface.getNetworkInterfaces();
+                 e != null && e.hasMoreElements();) {
+                java.net.NetworkInterface n = e.nextElement();
+                StringBuilder addrs = new StringBuilder();
+                for (java.net.InterfaceAddress a : n.getInterfaceAddresses()) {
+                    String ip = a.getAddress().getHostAddress();
+                    int pc = ip.indexOf('%');
+                    if (pc >= 0) ip = ip.substring(0, pc);
+                    if (addrs.length() > 0) addrs.append(',');
+                    addrs.append(ip).append('/').append(a.getNetworkPrefixLength());
+                }
+                if (sb.length() > 0) sb.append(';');
+                sb.append(n.getIndex()).append('|').append(n.getName()).append('|').append(Math.max(n.getMTU(), 576))
+                  .append('|').append(n.isUp() ? 1 : 0).append('|').append(addrs);
+            }
+        } catch (Exception ignored) { }
+        return sb.toString();
+    }
+
     private void run2() {
         // already running from earlier (the helper can outlive the screen)
         if (PROC != null && Net.isServer(LOCAL, 1500)) { listener.onUp(); return; }
@@ -80,6 +103,7 @@ final class Tailnet {
             pb.redirectErrorStream(true);
             pb.environment().put("HOME", dir.getPath());
             pb.environment().put("TMPDIR", ctx.getCacheDir().getPath());
+            pb.environment().put("SA_IFACES", ifaceSpec());
             pb.environment().put("SSL_CERT_DIR", "/system/etc/security/cacerts");
             final Process mine = pb.start();
             PROC = mine;

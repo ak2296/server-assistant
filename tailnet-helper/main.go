@@ -15,9 +15,12 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"tailscale.com/ipn"
+	"tailscale.com/net/netmon"
 	"tailscale.com/tsnet"
 )
 
@@ -33,6 +36,50 @@ func pipe(a, b net.Conn) {
 	go func() { io.Copy(a, b); done <- struct{}{} }()
 	go func() { io.Copy(b, a); done <- struct{}{} }()
 	<-done
+}
+
+// installInterfaceGetter gives Tailscale the phone's network interfaces from the app (SA_IFACES), because Android
+// forbids a plain program from asking the system itself ("netlinkrib: permission denied"). Format, one interface per
+// ";" : index|name|mtu|up(1/0)|addr/prefix,addr/prefix. Unset on every other system, which keeps the normal behaviour.
+func installInterfaceGetter() {
+	spec, ok := os.LookupEnv("SA_IFACES")
+	if !ok {
+		return
+	}
+	netmon.RegisterInterfaceGetter(func() ([]netmon.Interface, error) {
+		var out []netmon.Interface
+		for _, part := range strings.Split(spec, ";") {
+			f := strings.Split(part, "|")
+			if len(f) < 5 {
+				continue
+			}
+			idx, _ := strconv.Atoi(f[0])
+			mtu, _ := strconv.Atoi(f[2])
+			flags := net.FlagBroadcast | net.FlagMulticast
+			if f[3] == "1" {
+				flags |= net.FlagUp | net.FlagRunning
+			}
+			if f[1] == "lo" {
+				flags |= net.FlagLoopback
+			}
+			addrs := []net.Addr{}
+			for _, a := range strings.Split(f[4], ",") {
+				ip, n, err := net.ParseCIDR(a)
+				if err != nil {
+					continue
+				}
+				addrs = append(addrs, &net.IPNet{IP: ip, Mask: n.Mask})
+			}
+			out = append(out, netmon.Interface{Interface: &net.Interface{Index: idx, MTU: mtu, Name: f[1], Flags: flags}, AltAddrs: addrs})
+		}
+		if len(out) == 0 { // never hand back an empty list
+			out = append(out, netmon.Interface{
+				Interface: &net.Interface{Index: 1, MTU: 65536, Name: "lo", Flags: net.FlagUp | net.FlagLoopback | net.FlagRunning},
+				AltAddrs:  []net.Addr{&net.IPNet{IP: net.IPv4(127, 0, 0, 1), Mask: net.CIDRMask(8, 32)}},
+			})
+		}
+		return out, nil
+	})
 }
 
 func main() {
@@ -60,6 +107,8 @@ func main() {
 			return d.DialContext(ctx, "udp", "1.1.1.1:53")
 		}}
 	}
+
+	installInterfaceGetter()
 
 	s := &tsnet.Server{Hostname: *host, Dir: *dir, AuthKey: os.Getenv("TS_AUTHKEY"), Logf: func(string, ...any) {}}
 	defer s.Close()

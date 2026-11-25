@@ -12,7 +12,10 @@ IFS=. read -r MA MI PA _ <<< "$VER"
 CODE=$(( ${MA:-1} * 10000 + ${MI:-0} * 100 + ${PA:-0} ))
 echo "Building $VER (code $CODE) with $BT and $JAR"
 rm -rf build && mkdir -p build/gen build/classes build/dex
-"$BT/aapt" package -f -m -J build/gen -M AndroidManifest.xml -S res -I "$JAR" --version-code "$CODE" --version-name "$VER" -F build/unsigned.apk
+# aapt only adds --version-code/--version-name when the manifest has none, so write them into a copy of it
+sed -e "s/android:versionCode=\"[^\"]*\"/android:versionCode=\"$CODE\"/" \
+    -e "s/android:versionName=\"[^\"]*\"/android:versionName=\"$VER\"/" AndroidManifest.xml > build/AndroidManifest.xml
+"$BT/aapt" package -f -m -J build/gen -M build/AndroidManifest.xml -S res -I "$JAR" --version-code "$CODE" --version-name "$VER" -F build/unsigned.apk
 javac -source 8 -target 8 -Xlint:-options -bootclasspath "$JAR" -classpath "$JAR" -d build/classes $(find src build/gen -name '*.java')
 "$BT/d8" --min-api 21 --lib "$JAR" --output build/dex $(find build/classes -name '*.class')
 (cd build/dex && "$BT/aapt" add ../unsigned.apk classes.dex >/dev/null)

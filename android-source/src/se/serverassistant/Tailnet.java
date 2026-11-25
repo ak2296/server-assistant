@@ -95,14 +95,17 @@ final class Tailnet {
         LOCAL = "http://" + listen;
         final StringBuilder tail = new StringBuilder();
         final boolean[] progressed = { false };
+        final boolean[] reported = { false };   // true once the watchdog has told the user why it gave up
         new Thread(new Runnable() {   // nothing from the helper for 90 s: stop waiting and say what it last logged
             public void run() {
                 try { Thread.sleep(90000); } catch (InterruptedException e) { return; }
                 if (!progressed[0] && PROC != null) {
                     String t;
                     synchronized (tail) { t = tail.length() > 500 ? tail.substring(tail.length() - 500) : tail.toString(); }
+                    reported[0] = true;
+                    listener.onError("Still connecting after 90 seconds. The helper gave no sign-in link and no connection. Its last messages:\n"
+                            + (t.length() > 0 ? t : "(none)"));
                     stop();
-                    listener.onError("Still connecting after 90 seconds. Last messages:\n" + t);
                 }
             }
         }).start();
@@ -136,9 +139,9 @@ final class Tailnet {
                 else if ("up".equals(state)) listener.onUp();
                 else if ("error".equals(state)) { listener.onError(j.optString("error")); return; }
             }
-            listener.onError("The connection helper stopped." + (tail.length() > 0 ? "\n" + tail : ""));
+            if (!reported[0]) listener.onError("The connection helper stopped." + (tail.length() > 0 ? "\n" + tail : ""));
         } catch (Exception e) {
-            listener.onError("Could not start the connection helper: " + e.getMessage());
+            if (!reported[0]) listener.onError("Could not start the connection helper: " + e.getMessage());
         }
     }
 }

@@ -75,6 +75,7 @@ class Tailnet:
             if not self.installed():
                 self.info = {"state": "missing"}
                 return
+            self._kill_strays()
             state_dir = config.DATA / "tailnet"
             state_dir.mkdir(parents=True, exist_ok=True)
             port = str(cfg["server"]["port"]) if "port" in cfg.get("server", {}) else "8765"
@@ -106,6 +107,21 @@ class Tailnet:
                 self.info = msg
         if proc is self.proc and self.info.get("state") not in ("error", "off"):
             self.info = {"state": "error", "error": "The helper stopped. Turn it off and on again."}
+
+    def _kill_strays(self):
+        """An older helper left running (after an update or crash) would share this folder's node key and show up as
+        'Duplicate node key' in Tailscale. Stop any helper started from this exact file before starting a new one."""
+        try:
+            import psutil
+            me = os.path.normcase(str(self.exe))
+            for p in psutil.process_iter(["exe"]):
+                try:
+                    if p.info["exe"] and os.path.normcase(p.info["exe"]) == me and (not self.proc or p.pid != self.proc.pid):
+                        p.kill()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def stop_locked(self):
         if self.proc and self.proc.poll() is None:

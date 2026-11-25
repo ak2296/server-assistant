@@ -122,10 +122,10 @@ final class Tailnet {
             pb.environment().put("HOME", dir.getPath());
             pb.environment().put("TMPDIR", ctx.getCacheDir().getPath());
             pb.environment().put("SA_IFACES", ifaceSpec());
-            pb.environment().put("TS_NO_LOGS_NO_SUPPORT", "true");
+            pb.environment().put("TS_NO_LOGS_NO_SUPPORT", "true");   // no log uploads to Tailscale: less traffic, clearer log
             // mobile networks often meddle with plain port 80, where Tailscale first tries to reach its sign-in server
             pb.environment().put("TS_FORCE_NOISE_443", "true");
-            pb.environment().put("TS_DEBUG_NOISE_DIAL", "true");   // no log uploads to Tailscale: less traffic, clearer log
+            pb.environment().put("TS_DEBUG_NOISE_DIAL", "true");
             pb.environment().put("SSL_CERT_DIR", "/system/etc/security/cacerts");
             final Process mine = pb.start();
             PROC = mine;

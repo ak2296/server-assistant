@@ -53,6 +53,7 @@ class Tailnet:
             return str(e)[:240]
 
     def download(self, url: str):
+        self._kill_strays()   # an old helper still running would lock the file
         self.exe.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.exe.with_suffix(".part")
         tmp.unlink(missing_ok=True)

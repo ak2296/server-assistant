@@ -669,9 +669,11 @@ def tailnet_install():
     url = state.cfg["tailnet"].get("helper_url", "")
     if not url:
         raise HTTPException(400, "Add the helper address under Settings → Away from home, then save.")
+    state.tailnet.stop()   # a running helper locks its own file on Windows, so stop it before replacing it
     try:
         state.tailnet.download(url)
     except Exception as e:
+        state.tailnet.start(state.cfg)
         raise HTTPException(500, str(e)[:200])
     state.tailnet.start(state.cfg)
     return state.tailnet.status(state.cfg)

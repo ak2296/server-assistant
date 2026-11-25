@@ -50,6 +50,7 @@ def load_config(path: str | Path | None = None) -> dict:
     subs.setdefault("languages", ["en", "fa"])
     subs.setdefault("check_every_hours", 6)
     subs.setdefault("max_downloads_per_run", 15)
+    subs.setdefault("drop_folder", "")    # subtitle inbox; "" = "Subtitle inbox" in the app's folder
 
     up = cfg.setdefault("updates", {})
     up.setdefault("auto", True)

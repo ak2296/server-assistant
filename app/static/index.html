@@ -568,12 +568,52 @@ function pickSub(key, lang) {  // attach a subtitle file whose name doesn't matc
   };
   i.click();
 }
+function dropCard(d) {
+  const langOpt = l => ["fa", "en"].concat(l && !["fa", "en"].includes(l) ? [l] : []).map(x => `<option value="${x}" ${x === l ? "selected" : ""}>${x === "fa" ? "Persian" : x === "en" ? "English" : x}</option>`).join("");
+  const movieList = d.movies.length ? `<datalist id="dropMovies">${d.movies.map(m => `<option value="${esc(m.title)}${m.year ? " (" + m.year + ")" : ""}">`).join("")}</datalist>` : "";
+  window._dropMovies = d.movies;
+  const waiting = d.waiting.map((w, i) => `<div class="card" style="padding:10px;margin-top:8px">
+      <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(w.file)}">${esc(w.file)}</div>
+      <div class="actions" style="margin-top:6px;flex-wrap:wrap">
+        <input type="text" id="dropM${i}" list="dropMovies" placeholder="Which movie?" value="${w.suggest[0] && w.suggest[0].score > 0.5 ? esc(w.suggest[0].title + (w.suggest[0].year ? " (" + w.suggest[0].year + ")" : "")) : ""}" style="flex:1;min-width:160px">
+        <select id="dropL${i}">${langOpt(w.lang)}</select>
+        <button class="small primary" type="button" onclick="dropAssign(${i}, '${esc(w.file).replace(/'/g, "\\'")}')">Save</button>
+        <button class="small" type="button" onclick="dropDiscard('${esc(w.file).replace(/'/g, "\\'")}')">Remove</button>
+      </div></div>`).join("");
+  const recent = d.recent.slice(0, 6).map(r => `<div class="meta" style="margin-top:4px"><span class="${r.ok ? "ok" : "fail"}">${r.ok ? "✓" : "✗"}</span> ${esc(r.file)}${r.movie ? " → " + esc(r.movie) : ""} · ${esc(r.message)}</div>`).join("");
+  return `<div id="dropBox"><h2>Subtitle inbox</h2><div class="card">
+      <div class="hint" style="margin:0 0 8px">Drop subtitle files with any name into <b>${esc(d.folder)}</b> on the server, or add them here. The app finds the movie, renames the file and puts it next to the movie.</div>
+      <div class="actions" style="margin:0"><button class="small primary" type="button" onclick="dropUpload()">Add subtitle files</button></div>
+      ${waiting ? `<div class="hint" style="margin-top:10px"><b>Pick the movie</b> for these:</div>${waiting}` : ""}${movieList}
+      ${recent}</div></div>`;
+}
+function dropUpload() {
+  const i = document.createElement("input"); i.type = "file"; i.multiple = true; i.accept = ".srt,.ass,.ssa,.vtt,.sub,.zip";
+  i.onchange = async () => {
+    if (!i.files.length) return;
+    const f = new FormData(); for (const x of i.files) f.append("files", x);
+    toast("Adding…");
+    try { const r = await api("/api/subdrop/upload", {method:"POST", body:f}); toast(`${r.added} file(s) added. Matching…`); setTimeout(render, 2500); }
+    catch (e) { toast(e.message); }
+  };
+  i.click();
+}
+async function dropAssign(i, file) {
+  const t = val("dropM" + i).value.trim(), m = (window._dropMovies || []).find(m => (m.title + (m.year ? " (" + m.year + ")" : "")) === t) || (window._dropMovies || []).find(m => m.title === t);
+  if (!m) { toast("Pick a movie from the list"); return; }
+  try { const r = await api("/api/subdrop/assign", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({file, key: m.key, lang: val("dropL" + i).value})}); toast("Saved as " + r.saved); render(); }
+  catch (e) { toast(e.message); }
+}
+async function dropDiscard(file) {
+  try { await api("/api/subdrop/discard", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({file})}); render(); } catch (e) { toast(e.message); }
+}
 async function renderSubs() {
   const my = seq;
   $("#heading").textContent = "Subtitles";
   $("#actionBtn").hidden = true;
-  const [st, rows, gaps] = await Promise.all([api("/api/status"), api("/api/subtitles"), api("/api/library/subtitle-gaps").catch(() => null)]);
+  const [st, rows, gaps, drop] = await Promise.all([api("/api/status"), api("/api/subtitles"), api("/api/library/subtitle-gaps").catch(() => null), api("/api/subdrop").catch(() => null)]);
   const s = st.subtitles;
+  const dropBox = drop ? dropCard(drop) : "";
   const gapBox = gaps && gaps.total ? `<h2>Missing in Plex <span class="muted" style="font-weight:400">${gaps.missing.length} of ${gaps.total} movies</span></h2>
     <div class="card"><div class="actions" style="margin:0 0 6px"><button class="small" onclick="api('/api/library/scan-subtitles',{method:'POST'}).then(()=>{toast('Scanning Plex…');setTimeout(render,2500)})">${gaps.progress.running ? "Scanning " + gaps.progress.done + "/" + gaps.progress.total : "Rescan"}</button></div>
       ${gaps.missing.length ? gaps.missing.slice(0, 60).map(g => `<div class="kv" style="padding:4px 0;gap:10px"><span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.title)}${g.year ? " (" + g.year + ")" : ""}</span><span style="white-space:nowrap">needs ${esc(g.missing.join(", "))}</span><button class="small" onclick="pickSub('${esc(g.key)}','${esc(g.missing[0])}')">Add file</button></div>`).join("") + (gaps.missing.length > 60 ? `<div class="hint">+${gaps.missing.length - 60} more</div>` : "") : `<div class="ok">Every movie has the languages you want.</div>`}</div><h2>Activity</h2>` : "";
@@ -581,7 +621,8 @@ async function renderSubs() {
     : s.running ? "Searching…" : (s.last_run ? `Last check ${esc(s.last_run)} · ${s.last_count} downloaded · ` : "") + `<a href="#" onclick="event.preventDefault();api('/api/check-subtitles',{method:'POST'}).then(()=>toast('Looking for missing subtitles…'))">Check now</a>`);
   const label = {downloaded:"✓ Downloaded", not_found:"– None found yet", error:"✗ Error"};
   if (my !== seq) return;
-  $("#view").innerHTML = `${gapBox}<div class="stack">${rows.length ? rows.map(r => `<div class="card log">
+  if (val("dropBox") && document.activeElement && val("dropBox").contains(document.activeElement)) return;  // don't redraw while picking a movie
+  $("#view").innerHTML = `${dropBox}${gapBox}<div class="stack">${rows.length ? rows.map(r => `<div class="card log">
       <div class="${r.status === "downloaded" ? "ok" : r.status === "error" ? "fail" : ""}">${label[r.status] || esc(r.status)} · ${esc(r.language)}</div>
       <div class="path">${esc(r.video.split(/[\\/]/).pop())}</div><div class="meta">${esc(r.at.replace("T", " "))} ${esc(r.message)}</div></div>`).join("")
     : `<div class="empty">No subtitle activity yet.</div>`}</div>`;
@@ -667,6 +708,8 @@ async function renderSettings() {
       <label class="check"><input type="checkbox" id="sEnabled" ${sb.enabled ? "checked" : ""}>Download missing subtitles for movies</label>
       <div class="field"><label class="l">Languages (codes)</label><input type="text" id="sLang" value="${esc(sb.languages.join(", "))}"><div class="hint">en = English, fa = Persian. Each movie gets one subtitle per language.</div></div>
       <div class="hint">Where to look is set under <b>Subtitle sources</b> below.</div>
+      <div class="field"><label class="l">Subtitle inbox folder</label><input type="text" id="sDrop" value="${esc(sb.drop_folder || "")}" placeholder="${esc(sb.drop_default || "")}">
+        <div class="hint">Drop subtitle files here with any name (or a .zip of them). The app finds the movie, renames the file and puts it next to the movie. Leave empty to use the folder shown.</div></div>
     </div>
     <div class="card"><div class="title" style="font-size:15px;margin-bottom:8px">Plex</div>
       <div class="field"><label class="l">Plex address</label><input type="text" id="pUrl" value="${esc(px.url)}"></div>
@@ -773,7 +816,7 @@ async function saveSettings(ev) {
     music: { mode: mode("music"), custom: val("musicFolders").value, download_folders: val("dlFolders").value,
              exclude: [...document.querySelectorAll(".exc-music:not(:checked)")].map(x => x.value), shown: [...document.querySelectorAll(".exc-music")].map(x => x.value), lookback_days: val("lookback").value, catalog_gaps: val("catGaps").checked, sources: [...document.querySelectorAll(".msrc:checked")].map(x => x.value), release_types: [...document.querySelectorAll(".rtype:checked")].map(x => x.value) },
     movies: { mode: mode("movies"), custom: val("moviesFolders").value, exclude: [...document.querySelectorAll(".exc-movies:not(:checked)")].map(x => x.value), shown: [...document.querySelectorAll(".exc-movies")].map(x => x.value) },
-    subtitles: { enabled: val("sEnabled").checked, languages: val("sLang").value },
+    subtitles: { enabled: val("sEnabled").checked, languages: val("sLang").value, ...(val("sDrop") ? { drop_folder: val("sDrop").value } : {}) },
     qbittorrent: { engine: val("qEnabled").checked ? "qbittorrent" : "builtin", enabled: val("qEnabled").checked, url: val("qUrl").value, username: val("qUser").value, password: val("qPass").value, save_path: val("qSave").value, upload_limit_kb: val("qUp").value },
     updates: { auto: val("updAuto").checked },
     tailnet: { enabled: val("tnOn").checked, mode: document.querySelector("input[name=tnMode]:checked").value, name: val("tnName").value, authkey: val("tnKey").value, helper_url: val("tnUrl").value },

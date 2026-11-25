@@ -17,7 +17,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
-from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, qbmanager, releases, safety, sorter, subsources, subtitles, system, unseen
+from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, qbmanager, releases, safety, sorter, subdrop, subsources, subtitles, system, unseen
 from .config import DATA, ROOT, VERSION, load_config, save_config
 from .db import DB
 
@@ -40,6 +40,7 @@ class State:
         self.details_busy = False
         self.subscan = plexlib.SubScan(self.db, self.plex)
         self.unseen = unseen.Unseen(self.plex, DATA)
+        self.subdrop = subdrop.SubDrop(self.db, self.plex, DATA, self.cfg)
         self.backup_busy = False
         self.tailnet = tailnet.Tailnet()
         self.ov, self.ov_at = {}, 0.0          # short-lived cache of the Plex overview
@@ -65,6 +66,7 @@ class State:
         self.subs_progress = {"running": False, "last_run": None, "last_count": 0}
         self.kick_releases = threading.Event()
         self.kick_subs = threading.Event()
+        self.kick_drop = threading.Event()
 
 
     def resolve_paths(self, fetch: bool = True):
@@ -119,6 +121,7 @@ class State:
     def rebuild_clients(self):
         self.plex = plex.Plex(self.cfg)
         self.subscan.plex = self.plex
+        self.subdrop.plex = self.plex
         self.unseen.plex = self.plex
         self.qbit = self.make_downloader()
         self.qbit_error = self.dl_problem
@@ -162,6 +165,18 @@ def _subs_loop(st: State):
         st.subs_progress.update(running=False, last_run=time.strftime("%Y-%m-%d %H:%M"))
         st.kick_subs.wait(every)
         st.kick_subs.clear()
+
+
+def _subdrop_loop(st: State):
+    """Subtitle inbox: one folder listing a minute; matching only runs when a file is there."""
+    while not st.stop.is_set():
+        try:
+            st.subdrop.cfg = st.cfg
+            st.subdrop.run()
+        except Exception:
+            log.exception("Subtitle inbox crashed")
+        st.kick_drop.wait(60)
+        st.kick_drop.clear()
 
 
 def _sorter_loop(st: State):
@@ -250,7 +265,7 @@ def _downloader_loop(st: State):
 async def lifespan(app: FastAPI):
     global state
     state = State()
-    for fn in (_release_loop, _subs_loop, _sorter_loop, _plex_library_loop, _auto_update_loop):
+    for fn in (_release_loop, _subs_loop, _subdrop_loop, _sorter_loop, _plex_library_loop, _auto_update_loop):
         threading.Thread(target=fn, args=(state,), daemon=True).start()
     threading.Thread(target=state.monitor.run_forever, args=(state.stop,), daemon=True).start()
     threading.Thread(target=discovery.advertise, args=(int(state.cfg["server"]["port"]),), daemon=True).start()
@@ -263,6 +278,7 @@ async def lifespan(app: FastAPI):
     state.stop.set()
     state.kick_releases.set()
     state.kick_subs.set()
+    state.kick_drop.set()
 
 
 app = FastAPI(title="Server Assistant", lifespan=lifespan)
@@ -635,6 +651,54 @@ async def add_subtitle(key: str = Form(...), lang: str = Form(...), file: Upload
     return {"ok": True, "saved": dest.name, "plex_rescan": scanned}
 
 
+@app.get("/api/subdrop")
+def subdrop_status():
+    """The subtitle inbox: where it is, what waits for a movie to be picked, and what happened lately."""
+    waiting = state.subdrop.waiting()
+    movies = [{"key": m["rating_key"], "title": m["title"], "year": m["year"] or ""} for m in state.subdrop.movies()] if waiting else []
+    movies.sort(key=lambda m: (m["title"] or "").lower())
+    return {"folder": str(state.subdrop.folder()), "waiting": waiting, "movies": movies, "recent": state.subdrop.recent[:15]}
+
+
+@app.post("/api/subdrop/upload")
+async def subdrop_upload(files: list[UploadFile] = File(...)):
+    n = 0
+    for f in files[:30]:
+        data = await f.read()
+        if not data or len(data) > 20_000_000:
+            continue
+        try:
+            state.subdrop.add_upload(f.filename, data)
+            n += 1
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    state.kick_drop.set()
+    return {"ok": True, "added": n}
+
+
+class DropAssign(BaseModel):
+    file: str
+    key: str = ""
+    lang: str = ""
+
+
+@app.post("/api/subdrop/assign")
+def subdrop_assign(body: DropAssign):
+    lang = (body.lang or "").strip().lower()
+    if not re.fullmatch(r"[a-z]{2,3}", lang):
+        raise HTTPException(400, "Choose a language.")
+    try:
+        return {"ok": True, "saved": state.subdrop.assign(body.file, body.key, lang)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/subdrop/discard")
+def subdrop_discard(body: DropAssign):
+    state.subdrop.discard(body.file)
+    return {"ok": True}
+
+
 @app.get("/api/summary")
 def weekly_summary():
     """What happened in the last 7 days."""
@@ -897,7 +961,8 @@ def get_settings():
         "backup": {"enabled": bool(c["backup"].get("enabled")), "folder": c["backup"].get("folder", ""),
                    "keep": c["backup"].get("keep", 2), "every_days": c["backup"].get("every_days", 7)},
         "movies": {"exclude": sub.get("exclude", []), "mode": _folder_mode(sub["movie_folders"]), "custom": _as_list(sub["movie_folders"]), "in_use": sub["roots"]},
-        "subtitles": {"enabled": bool(sub.get("enabled")), "languages": sub["languages"],
+        "subtitles": {"enabled": bool(sub.get("enabled")), "languages": sub["languages"], "drop_folder": sub.get("drop_folder", ""),
+                      "drop_default": str(DATA / "Subtitle inbox"),
                       "api_key": SECRET if sub.get("api_key") else "", "username": sub.get("username", ""),
                       "password": SECRET if sub.get("password") else ""},
         "qbittorrent": {"engine": q.get("engine", "builtin"), "enabled": bool(q.get("enabled")), "url": q["url"], "username": q.get("username", ""),
@@ -1006,6 +1071,15 @@ def save_settings(body: SettingsBody):
     s = body.subtitles
     if has(s, "enabled"):
         sub["enabled"] = bool(s.get("enabled"))
+    if has(s, "drop_folder"):
+        df = str(s.get("drop_folder") or "").strip().strip('"')
+        if df and not Path(df).is_dir():
+            try:
+                Path(df).mkdir(parents=True, exist_ok=True)
+            except OSError:
+                raise HTTPException(400, f"The subtitle inbox folder can't be made: {df}")
+        sub["drop_folder"] = df
+        state.kick_drop.set()
     if has(s, "languages"):
         sub["languages"] = [x.strip().lower() for x in str(s.get("languages", "")).replace(";", ",").split(",") if x.strip()] \
             if isinstance(s.get("languages"), str) else [x.lower() for x in s.get("languages", [])]

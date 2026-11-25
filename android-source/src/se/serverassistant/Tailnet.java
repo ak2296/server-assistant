@@ -93,7 +93,19 @@ final class Tailnet {
         stop();   // a helper that is still waiting for sign-in: start over cleanly instead of fighting for the port
         final String listen = "127.0.0.1:" + freePort();
         LOCAL = "http://" + listen;
-        StringBuilder tail = new StringBuilder();
+        final StringBuilder tail = new StringBuilder();
+        final boolean[] progressed = { false };
+        new Thread(new Runnable() {   // nothing from the helper for 90 s: stop waiting and say what it last logged
+            public void run() {
+                try { Thread.sleep(90000); } catch (InterruptedException e) { return; }
+                if (!progressed[0] && PROC != null) {
+                    String t;
+                    synchronized (tail) { t = tail.length() > 500 ? tail.substring(tail.length() - 500) : tail.toString(); }
+                    stop();
+                    listener.onError("Still connecting after 90 seconds. Last messages:\n" + t);
+                }
+            }
+        }).start();
         try {
             File dir = new File(ctx.getFilesDir(), "tailnet");
             dir.mkdirs();
@@ -112,11 +124,14 @@ final class Tailnet {
             while ((line = r.readLine()) != null) {
                 JSONObject j;
                 try { j = new JSONObject(line); } catch (Exception e) {
-                    tail.append(line).append('\n');
-                    if (tail.length() > 600) tail.delete(0, tail.length() - 600);
+                    synchronized (tail) {
+                        tail.append(line).append('\n');
+                        if (tail.length() > 1500) tail.delete(0, tail.length() - 1500);
+                    }
                     continue;
                 }
                 String state = j.optString("state");
+                progressed[0] = true;
                 if ("login".equals(state)) listener.onLogin(j.optString("url"));
                 else if ("up".equals(state)) listener.onUp();
                 else if ("error".equals(state)) { listener.onError(j.optString("error")); return; }

@@ -110,7 +110,11 @@ func main() {
 
 	installInterfaceGetter()
 
-	s := &tsnet.Server{Hostname: *host, Dir: *dir, AuthKey: os.Getenv("TS_AUTHKEY"), Logf: func(string, ...any) {}}
+	logf := func(string, ...any) {}
+	if _, phone := os.LookupEnv("SA_IFACES"); phone { // on the phone, keep a short log so a stuck start can be explained
+		logf = func(format string, args ...any) { fmt.Fprintf(os.Stderr, "log: "+format+"\n", args...) }
+	}
+	s := &tsnet.Server{Hostname: *host, Dir: *dir, AuthKey: os.Getenv("TS_AUTHKEY"), Logf: logf}
 	defer s.Close()
 	if err := s.Start(); err != nil {
 		emit(map[string]any{"state": "error", "error": err.Error()})

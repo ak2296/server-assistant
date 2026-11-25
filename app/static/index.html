@@ -675,6 +675,7 @@ async function renderSettings() {
     </div>
   </div>
   <div class="card" style="margin-top:10px"><div class="title" style="font-size:15px;margin-bottom:8px">Away from home (Tailscale)</div>
+    ${window.Android ? `<div class="hint" style="margin:0 0 10px">These settings belong to the server PC, not this phone. The phone connects on its own: when it can't reach the server, press "Connect away from home".</div>` : ""}
     <label class="check"><input type="checkbox" id="tnOn" ${S.tailnet.enabled ? "checked" : ""}>Connect through my private Tailscale network</label>
     <div class="field"><label class="l">This PC is</label>
       <label class="check"><input type="radio" name="tnMode" value="serve" ${S.tailnet.mode !== "connect" ? "checked" : ""}>The server (the PC that runs Plex)</label>

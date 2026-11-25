@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"runtime"
 	"strconv"
@@ -100,7 +101,23 @@ func diagnose() {
 	if ips, err := dnscache.Get().Forward.LookupHost(ctx, "controlplane.tailscale.com"); err != nil {
 		say("lookup controlplane FAILED: %v", err)
 	} else {
-		say("lookup controlplane ok: %v", ips)
+		say("lookup controlplane ok (%d addresses)", len(ips))
+	}
+	for _, nw := range []string{"tcp4", "tcp6"} {
+		nw := nw
+		hc := &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+				return (&net.Dialer{Timeout: 8 * time.Second}).DialContext(ctx, nw, addr)
+			},
+			Proxy: nil,
+		}}
+		resp, err := hc.Get("https://controlplane.tailscale.com/key?v=152")
+		if err != nil {
+			say("sign-in server over %s FAILED: %v", nw, err)
+			continue
+		}
+		resp.Body.Close()
+		say("sign-in server over %s ok (HTTP %d)", nw, resp.StatusCode)
 	}
 }
 

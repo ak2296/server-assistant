@@ -8,12 +8,14 @@ import logging
 
 import uvicorn
 
-from app.config import load_config
+from app.config import DATA, load_config
+from app import safety
 from app.discovery import computer_name, lan_ip
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s", datefmt="%H:%M:%S")
+    safety.restore_if_lost(DATA)   # bring back settings or lists that went missing
     cfg = load_config()
     port = cfg["server"]["port"]
     print(f"\n  Dashboard on this PC:   http://localhost:{port}")

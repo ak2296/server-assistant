@@ -24,6 +24,11 @@ CREATE TABLE IF NOT EXISTS skipped_artists (
     artist      TEXT PRIMARY KEY,   -- library folder name; ignored until removed from this list
     at          TEXT
 );
+CREATE TABLE IF NOT EXISTS artist_pins (
+    folder      TEXT PRIMARY KEY,   -- library folder name
+    mbid        TEXT,               -- the MusicBrainz artist you picked for it (same-name artists are told apart this way)
+    at          TEXT
+);
 CREATE TABLE IF NOT EXISTS movie_subs (
     rating_key  TEXT PRIMARY KEY,   -- Plex item id
     title       TEXT,

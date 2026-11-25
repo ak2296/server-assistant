@@ -2,8 +2,7 @@
 cd /d "%~dp0"
 if not exist ".venv" (
     echo First run: setting up...
-    rem libtorrent (the built-in downloader) exists only for Python 3.9 to 3.13: prefer those
-    py -3.13 -m venv .venv 2>nul || py -3.12 -m venv .venv 2>nul || python -m venv .venv || (echo Python 3.11 or newer is needed: https://www.python.org/downloads/ & pause & exit /b)
+    py -3 -m venv .venv 2>nul || python -m venv .venv || (echo Python 3.11 or newer is needed: https://www.python.org/downloads/ & pause & exit /b)
 )
 .venv\Scripts\python -m pip install -q -r requirements.txt
 rem Optional: lets the app open in its own window (skipped quietly if it can't be installed)

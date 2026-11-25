@@ -12,3 +12,4 @@ android-keystore-secret*.txt
 *.keystore
 *.jks
 *keystore*.txt
+android-source/*.idsig

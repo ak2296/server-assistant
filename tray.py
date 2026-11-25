@@ -153,6 +153,15 @@ def single_instance() -> socket.socket | None:
         return None
 
 
+def stop_downloader():
+    """Quitting from the tray also stops the app's own qBittorrent (an app update or restart leaves it running)."""
+    try:
+        from app.qbmanager import Manager
+        Manager(DATA).stop()
+    except Exception:
+        pass
+
+
 def main():
     lock = single_instance()
     if lock is None:  # already running -> just open the window
@@ -178,7 +187,7 @@ def main():
                          checked=lambda _i: autostart_enabled()),
         pystray.MenuItem("Open log", lambda: os.startfile(LOG) if LOG.exists() and hasattr(os, "startfile") else None),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Quit (stop everything)", lambda: (sup.stop(), icon.stop())),
+        pystray.MenuItem("Quit (stop everything)", lambda: (sup.stop(), stop_downloader(), icon.stop())),
     )
     icon = pystray.Icon("ServerAssistant", image, "Server Assistant", menu)
 

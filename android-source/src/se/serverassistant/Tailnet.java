@@ -21,11 +21,12 @@ final class Tailnet {
         void onError(String message);
     }
 
-    static final String LOCAL = "http://127.0.0.1:8766";
+    /** Address the helper listens on. The port is picked fresh each time (a leftover helper can never block it). */
+    static volatile String LOCAL = "http://127.0.0.1:8766";
+    private static Process PROC;   // the one helper of this app process
 
     private final Context ctx;
     private final Listener listener;
-    private Process proc;
 
     Tailnet(Context ctx, Listener l) {
         this.ctx = ctx.getApplicationContext();
@@ -47,26 +48,42 @@ final class Tailnet {
     }
 
     void stop() {
-        if (proc != null) proc.destroy();
-        proc = null;
+        Process p = PROC;
+        PROC = null;
+        if (p != null) p.destroy();
+    }
+
+    private static int freePort() {
+        try {
+            java.net.ServerSocket ss = new java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"));
+            int port = ss.getLocalPort();
+            ss.close();
+            return port;
+        } catch (Exception e) {
+            return 18766;
+        }
     }
 
     private void run2() {
         // already running from earlier (the helper can outlive the screen)
-        if (Net.isServer(LOCAL, 1500)) { listener.onUp(); return; }
+        if (PROC != null && Net.isServer(LOCAL, 1500)) { listener.onUp(); return; }
+        stop();   // a helper that is still waiting for sign-in: start over cleanly instead of fighting for the port
+        final String listen = "127.0.0.1:" + freePort();
+        LOCAL = "http://" + listen;
         StringBuilder tail = new StringBuilder();
         try {
             File dir = new File(ctx.getFilesDir(), "tailnet");
             dir.mkdirs();
             String name = "phone-" + Build.MODEL.toLowerCase().replaceAll("[^a-z0-9]+", "-");
             ProcessBuilder pb = new ProcessBuilder(helper(ctx).getPath(), "-mode", "connect", "-dir", dir.getPath(),
-                    "-hostname", name, "-remote", "serverassistant", "-listen", "127.0.0.1:8766");
+                    "-hostname", name, "-remote", "serverassistant", "-listen", listen, "-exit-with-parent");
             pb.redirectErrorStream(true);
             pb.environment().put("HOME", dir.getPath());
             pb.environment().put("TMPDIR", ctx.getCacheDir().getPath());
             pb.environment().put("SSL_CERT_DIR", "/system/etc/security/cacerts");
-            proc = pb.start();
-            BufferedReader r = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+            final Process mine = pb.start();
+            PROC = mine;
+            BufferedReader r = new BufferedReader(new InputStreamReader(mine.getInputStream()));
             String line;
             while ((line = r.readLine()) != null) {
                 JSONObject j;

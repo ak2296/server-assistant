@@ -27,14 +27,13 @@ class QBit:
         r = self.s.post(f"{self.url}/api/v2/auth/login",
                         data={"username": self.username, "password": self.password}, timeout=10)
         if r.status_code != 200 or r.text.strip() == "Fails.":
-            raise RuntimeError("qBittorrent login failed: check username/password in config.toml")
+            raise RuntimeError("qBittorrent refused the login. Check the username and password in Settings > Downloads.")
         self.logged_in = True
 
     def _call(self, method, path, **kw):
-        if not self.logged_in:
-            self._login()
+        # try without logging in first (qBittorrent can skip the login for this PC); log in only when it asks
         r = self.s.request(method, f"{self.url}/api/v2/{path}", timeout=30, **kw)
-        if r.status_code == 403:  # session expired
+        if r.status_code == 403:
             self._login()
             r = self.s.request(method, f"{self.url}/api/v2/{path}", timeout=30, **kw)
         r.raise_for_status()

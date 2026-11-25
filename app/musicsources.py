@@ -43,19 +43,40 @@ def _secondary(title: str) -> list[str]:
 
 
 # ---------------------------------------------------------------- Deezer
-def deezer(name: str) -> list[dict]:
+def _pick_by_overlap(cands: list, albums_of, known: set[str] | None, fans=lambda c: 0):
+    """Several artists share this name: choose the one whose albums match what you own. None = cannot tell."""
+    if len(cands) == 1:
+        return cands[0]
+    best = None
+    for c in cands[:4]:
+        try:
+            titles = albums_of(c)
+        except Exception:
+            continue
+        hits = sum(1 for t in titles if library.is_owned(t, known or set()))
+        key = (hits, fans(c))
+        if best is None or key > best[0]:
+            best = (key, c)
+    return best[1] if best and best[0][0] > 0 else None
+
+
+def deezer(name: str, known: set[str] | None = None) -> list[dict]:
     target = library.normalize(name)
     data = _get("https://api.deezer.com/search/artist", {"q": name, "limit": 10})
-    best = None
-    for a in data.get("data", []):
-        if library.normalize(a.get("name", "")) == target:
-            if best is None or a.get("nb_fan", 0) > best.get("nb_fan", 0):
-                best = a
+    cands = [a for a in data.get("data", []) if library.normalize(a.get("name", "")) == target]
+    cache: dict = {}
+
+    def albums_of(a):
+        if a["id"] not in cache:
+            cache[a["id"]] = _get(f"https://api.deezer.com/artist/{a['id']}/albums", {"limit": 100}).get("data", [])
+        return [al["title"] for al in cache[a["id"]]]
+
+    best = _pick_by_overlap(cands, albums_of, known, lambda a: a.get("nb_fan", 0))
     if not best:
         return []
     out = []
-    albums = _get(f"https://api.deezer.com/artist/{best['id']}/albums", {"limit": 100})
-    for al in albums.get("data", []):
+    albums_of(best)
+    for al in cache[best["id"]]:
         rtype = {"album": "Album", "single": "Single", "ep": "EP"}.get((al.get("record_type") or "").lower())
         if not rtype or not al.get("release_date"):
             continue
@@ -69,19 +90,25 @@ def deezer(name: str) -> list[dict]:
 _SUFFIX = re.compile(r"\s+-\s+(Single|EP)\s*$", re.I)
 
 
-def itunes(name: str) -> list[dict]:
+def itunes(name: str, known: set[str] | None = None) -> list[dict]:
     target = library.normalize(name)
     data = _get("https://itunes.apple.com/search", {"term": name, "entity": "musicArtist", "limit": 10})
-    artist_id = None
-    for a in data.get("results", []):
-        if library.normalize(a.get("artistName", "")) == target:
-            artist_id = a.get("artistId")
-            break
-    if not artist_id:
+    cands = [a for a in data.get("results", []) if library.normalize(a.get("artistName", "")) == target]
+    cache: dict = {}
+
+    def lookup(a):
+        if a["artistId"] not in cache:
+            cache[a["artistId"]] = _get("https://itunes.apple.com/lookup", {"id": a["artistId"], "entity": "album", "limit": 200, "sort": "recent"}).get("results", [])
+        return cache[a["artistId"]]
+
+    def titles(a):
+        return [_SUFFIX.sub("", r.get("collectionName", "")).strip() for r in lookup(a) if r.get("wrapperType") == "collection"]
+
+    best = _pick_by_overlap(cands, titles, known)
+    if not best:
         return []
-    data = _get("https://itunes.apple.com/lookup", {"id": artist_id, "entity": "album", "limit": 200, "sort": "recent"})
     out = []
-    for al in data.get("results", []):
+    for al in lookup(best):
         if al.get("wrapperType") != "collection":
             continue
         title = al.get("collectionName", "")

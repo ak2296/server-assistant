@@ -1,5 +1,6 @@
 """Load config.toml (falls back to config.example.toml)."""
 import os
+import shutil
 import tomllib
 from pathlib import Path
 
@@ -20,8 +21,14 @@ def load_config(path: str | Path | None = None) -> dict:
         path = DATA / "config.toml"
         if not path.exists():
             path = ROOT / "config.example.toml"
-    with open(path, "rb") as f:
-        cfg = tomllib.load(f)
+    try:
+        with open(path, "rb") as f:
+            cfg = tomllib.load(f)
+    except tomllib.TOMLDecodeError:   # a damaged settings file: use the copy from before the last save
+        if not Path(str(path) + ".bak").exists():
+            raise
+        with open(str(path) + ".bak", "rb") as f:
+            cfg = tomllib.load(f)
 
     music = cfg.setdefault("music", {})
     music.setdefault("library", "auto")   # "auto" = take the music folders from Plex
@@ -113,4 +120,9 @@ def save_config(cfg: dict, path: Path | None = None) -> None:
         lines.append("")
     tmp = Path(str(path) + ".tmp")
     tmp.write_text("\n".join(lines), encoding="utf-8")
+    if path.exists():
+        try:
+            shutil.copy2(path, str(path) + ".bak")   # the previous version of your settings, always one step back
+        except OSError:
+            pass
     tmp.replace(path)

@@ -77,7 +77,7 @@ New releases are looked up on MusicBrainz, Deezer and iTunes (all free, no login
 "Skip artist" on a release stops checking that artist until you remove them from Music → Skipped.
 
 ## Downloads
-The app has its own downloader (libtorrent), so qBittorrent is optional. Paste a magnet link or choose a .torrent file on the Downloads tab.
+The app sets up its own qBittorrent by itself (nothing to install; it is downloaded once and runs hidden), or you can point it at your own. Paste a magnet link or choose a .torrent file on the Downloads tab.
 Music is saved in the app's own folder and sorted into the artist's folder when it finishes; nothing keeps sharing afterwards.
 You can switch to qBittorrent in Settings → Downloads.
 

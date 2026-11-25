@@ -18,7 +18,7 @@ function Stop-Running {
 function Test-Python($exe, $extra) {
     try {
         $out = & $exe @extra -c "import sys; print(sys.version_info[0]*100+sys.version_info[1])" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $out -match '^\d+$' -and [int]$out -ge 311 -and [int]$out -le 313) { return $true }  # libtorrent has no build for 3.14
+        if ($LASTEXITCODE -eq 0 -and $out -match '^\d+$' -and [int]$out -ge 311) { return $true }
     } catch {}
     return $false
 }
@@ -30,7 +30,6 @@ function Find-Python {
         $candidates += @{ Exe = (Join-Path $local "Python$v\python.exe"); Args = @() }
         $candidates += @{ Exe = (Join-Path $env:ProgramFiles "Python$v\python.exe"); Args = @() }
     }
-    # libtorrent (the built-in downloader) only exists for Python 3.9 to 3.13, so prefer those over a newer one
     foreach ($v in "3.13", "3.12", "3.11") { $candidates += @{ Exe = "py"; Args = @("-$v") } }
     $candidates += @{ Exe = "py"; Args = @("-3") }
     $candidates += @{ Exe = "python"; Args = @() }

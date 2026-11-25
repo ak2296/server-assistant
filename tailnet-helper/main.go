@@ -43,7 +43,15 @@ func main() {
 	local := flag.String("local", "127.0.0.1:8765", "serve: local dashboard address")
 	remote := flag.String("remote", "serverassistant", "connect: name of the server node")
 	listen := flag.String("listen", "127.0.0.1:8766", "connect: local address to open")
+	exitWithParent := flag.Bool("exit-with-parent", false, "exit when the program that started this helper goes away (its stdin closes)")
 	flag.Parse()
+
+	if *exitWithParent {
+		go func() {
+			io.Copy(io.Discard, os.Stdin) // returns when the parent process is gone
+			os.Exit(0)
+		}()
+	}
 
 	// On Android there is no /etc/resolv.conf: give Go's resolver a public DNS server to fall back on.
 	if _, err := os.Stat("/etc/resolv.conf"); err != nil && runtime.GOOS != "windows" {

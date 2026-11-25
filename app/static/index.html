@@ -172,7 +172,7 @@
 <body>
 <header>
   <h1 id="heading">Server</h1>
-  <div style="display:flex;gap:6px"><button class="small" id="actionBtn" hidden></button><button class="small" id="appGear" hidden title="Change server">⚙</button></div>
+  <div style="display:flex;gap:6px"><button class="small" id="actionBtn" hidden></button></div>
 </header>
 <div class="sub" id="sub"></div>
 <main id="view"></main>
@@ -271,21 +271,22 @@ async function renderServer() {
   btn.onclick = async () => { try { await api("/api/plex/scan", {method:"POST"}); toast("Plex is scanning your libraries"); } catch (e) { toast(e.message); } };
   const [d, sum, uns, rec] = await Promise.all([api("/api/server"), api("/api/summary").catch(() => null), api("/api/library/unseen").catch(() => null), api("/api/library/recent").catch(() => null)]);
   const s = d.system, p = d.plex, a = d.app;
-  const upd = !a.auto ? "auto-update off" : a.update.error ? `<span class="fail">update check failed</span>` : a.update.result === "up to date" ? `up to date, checked ${esc(a.update.at)}`
-    : a.update.result ? esc(a.update.result) + "…" : "checks for updates every 3 min";
-  let h = `<div class="muted" style="padding:2px 2px 0">Server Assistant <b style="color:var(--text)">v${esc(a.version)}</b> · running ${dur(a.uptime)} · ${upd}</div>`;
+  const upd = !a.auto ? " · auto-update off" : a.update.error ? ` · <span class="fail">update check failed</span>` : a.update.result && a.update.result !== "up to date" ? " · " + esc(a.update.result) + "…" : "";
+  const appLine = `Server Assistant <b style="color:var(--text)">v${esc(a.version)}</b>${upd}`;
+  let h = "";
   if (sum) h += `<h2>This week</h2><div class="card"><div class="kv" style="gap:14px;flex-wrap:wrap">
       <span><b style="color:var(--text)">${sum.plays}</b> plays by ${sum.viewers} ${sum.viewers === 1 ? "person" : "people"}</span><span><b style="color:var(--text)">${sum.added}</b> added to Plex</span>
       <span><b style="color:var(--text)">${sum.subtitles}</b> subtitles</span><span><b style="color:var(--text)">${sum.releases}</b> new releases</span><span><b style="color:var(--text)">${sum.sorted}</b> files sorted</span></div>
       ${sum.tightest_drive ? `<div class="hint" style="margin-top:6px">Tightest drive ${esc(sum.tightest_drive.mount)}: ${bytes(sum.tightest_drive.free)} free of ${bytes(sum.tightest_drive.total)}</div>` : ""}</div>`;
 
-  // Plex status line
-  if (!p.configured) setSub(my, `<span class="warn">Plex not connected: no token found. Add it in config.toml.</span>`);
-  else if (!p.online) setSub(my, `<span class="dot" style="background:var(--bad)"></span><span class="fail">Plex is not responding</span> <span class="muted">${esc(p.error || "")}</span>`);
+  // two short status lines: Plex, then this app
+  if (!p.configured) setSub(my, `<span class="warn">Plex not connected: no token found.</span><br>${appLine}`);
+  else if (!p.online) setSub(my, `<span class="dot" style="background:var(--bad)"></span><span class="fail">Plex is not responding</span><br>${appLine}`);
   else {
     const sv = p.server, ra = p.remote || {};
-    const remote = ra.state === "mapped" ? `<span class="ok">Remote access OK</span>` : ra.state ? `<span class="warn">Remote access: ${esc(ra.state)}</span>` : "";
-    setSub(my, `<span class="dot" style="background:var(--good)"></span><b>${esc(sv.name)}</b> · Plex ${esc((sv.version || "").split("-")[0])}${sv.plex_pass ? " · Plex Pass" : ""}<br>${remote}${p.update && p.update.available ? ` · <span class="warn">Update ${esc(p.update.version.split("-")[0])} available</span>` : ""}`);
+    const remote = ra.state && ra.state !== "mapped" ? ` · <span class="warn">remote: ${esc(ra.state)}</span>` : "";
+    const newer = p.update && p.update.available ? ` · <span class="warn">update ${esc(p.update.version.split("-")[0])}</span>` : "";
+    setSub(my, `<span class="dot" style="background:var(--good)"></span><b>${esc(sv.name)}</b> · Plex ${esc((sv.version || "").split("-")[0])}${remote}${newer}<br>${appLine}`);
   }
 
   appVer = a.version; plexOnline = p.online; plexUp = s.uptime; paintStatus();
@@ -377,21 +378,6 @@ async function stopStream(id) {
   catch (e) { toast(e.message); }
   render();
 }
-async function fixDetails() {
-  const e = document.getElementById("fixInfo"); if (!e) return;
-  try {
-    const d = await api("/api/downloads/fix-log");
-    e.textContent = `Python in use: ${d.python} (${d.bits}-bit)\nProgram environment: ${d.environment}\nlibtorrent: ${d.libtorrent.state}${d.libtorrent.detail ? " - " + d.libtorrent.detail : ""}\n`
-      + (d.old_environments.length ? `Old environments left: ${d.old_environments.join(", ")}\n` : "")
-      + (d.running ? "\nThe repair is running. The app stays usable until the very end." : d.done ? "\nDone. The app restarts now." : d.error ? `\nThe repair stopped: ${d.error}` : "")
-      + (d.log ? `\n\n--- repair log ---\n${d.log}` : "\n\n(the repair has not been started)");
-    e.hidden = false;
-    if (d.running) setTimeout(fixDetails, 3000);  // follow the progress
-  } catch (x) { e.textContent = x.message; e.hidden = false; }
-}
-async function fixDownloader() {
-  try { await api("/api/downloads/fix", {method:"POST"}); toast("Repair started. Watch the details below."); fixDetails(); } catch (e) { toast(e.message); }
-}
 async function sendUnseen(folder) {
   try { const r = await api("/api/library/unseen/send", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(folder ? {folders:[folder]} : {})});
     toast(`Plex is scanning ${r.folders} folder${r.folders === 1 ? "" : "s"}`); setTimeout(render, 4000); } catch (e) { toast(e.message); }
@@ -420,8 +406,9 @@ function addBox(id, mbid = "", showType = false) {
   return `<form class="addbox" onsubmit="submitAdd(event, '${mbid}')">
     <textarea name="links" placeholder="Paste magnet link(s) or .torrent URL(s), one per line"></textarea>
     <input type="file" name="files" accept=".torrent,application/x-bittorrent" multiple>
-    ${showType ? `<div class="toggle"><label class="chip on" id="tMusic"><input type="radio" name="music" value="true" checked hidden onchange="typeSel(this)">Music (auto-sort)</label>
-      <label class="chip" id="tOther"><input type="radio" name="music" value="false" hidden onchange="typeSel(this)">Other</label></div>` : `<input type="hidden" name="music" value="true">`}
+    ${showType ? `<div class="toggle"><label class="chip on" id="tMusic"><input type="radio" name="music" value="true" checked hidden onchange="typeSel(this)">Music: add to my library</label>
+      <label class="chip" id="tOther"><input type="radio" name="music" value="false" hidden onchange="typeSel(this)">Other: just download</label></div>
+      <div class="hint" style="margin:0 0 8px">Music is moved into your artist folders when it finishes. Other downloads stay in your Downloads folder.</div>` : `<input type="hidden" name="music" value="true">`}
     <div class="actions" style="margin-top:0"><button class="primary small" type="submit">Download</button>
       ${id ? `<button class="small" type="button" onclick="openAdd=null;render()">Cancel</button>` : ""}</div>
   </form>`;
@@ -453,6 +440,7 @@ function releaseCard(r) {
       <a href="#" onclick="skipArtist(this.dataset.a); return false" data-a="${esc(r.artist)}">Skip this artist</a>
       <a href="${esc(info)}" target="_blank" rel="noopener">Info</a>`;
   if (r.status === "skipped") actions = `<button class="small" onclick="setStatus('${r.mbid}','new')">Undo skip</button>`;
+  else actions += ` <a href="#" onclick="pickArtist(this.dataset.a); return false" data-a="${esc(r.artist)}">Not this artist?</a>`;
   return `<div class="card rel ${openAdd === r.mbid ? "open" : ""}"><div class="row">
       <div class="cover" style="background-image:url('${esc(cover)}')">${r.src ? `<span class="srctag">${({musicbrainz:"MusicBrainz",deezer:"Deezer",itunes:"iTunes"})[r.src] || ""}</span>` : ""}</div>
       <div class="grow">
@@ -461,6 +449,33 @@ function releaseCard(r) {
         <div class="meta">${esc(r.type)} · ${esc(r.date)}</div>
         <div class="actions">${actions}</div>
       </div></div>${openAdd === r.mbid ? addBox(r.mbid, r.mbid) : ""}</div>`;
+}
+/* Two artists can share a name. This lets you say which one the folder really is. */
+async function pickArtist(folder) {
+  document.getElementById("artistDlg")?.remove();
+  const d = document.createElement("div"); d.id = "artistDlg";
+  d.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow:auto";
+  d.innerHTML = `<div class="card" style="max-width:520px;width:100%"><div class="title" style="font-size:16px">Which "${esc(folder)}" is yours?</div><div class="hint" id="adBody" style="margin-top:8px">Looking them up…</div>
+    <div class="actions" style="margin-top:12px"><button class="small" onclick="document.getElementById('artistDlg').remove()">Close</button></div></div>`;
+  d.onclick = e => { if (e.target === d) d.remove(); };
+  document.body.appendChild(d);
+  try {
+    const c = await api("/api/artist/candidates?folder=" + encodeURIComponent(folder));
+    const body = document.getElementById("adBody"); if (!body) return;
+    body.innerHTML = c.length ? c.map(x => `<div class="card" style="margin:8px 0;padding:10px">
+        <div class="title" style="font-size:14px">${esc(x.name)}${x.note ? ` <span class="muted">(${esc(x.note)})</span>` : ""}</div>
+        <div class="meta">${[x.type, x.country, x.begin ? "since " + esc(x.begin) : ""].filter(Boolean).map(esc).join(" · ")}</div>
+        <div class="meta">${x.owned ? `Made ${x.owned} album${x.owned === 1 ? "" : "s"} you already have.` : "None of your albums are theirs."}${x.recent.length ? " Recent: " + x.recent.map(esc).join(", ") + "." : ""}</div>
+        <div class="actions"><button class="small primary" data-m="${esc(x.mbid)}" data-f="${esc(folder)}" onclick="pinArtist(this)">This one</button></div></div>`).join("")
+      : "MusicBrainz knows no artist with exactly this name. Use <b>Skip this artist</b> if the folder isn't a band.";
+  } catch (e) { const b = document.getElementById("adBody"); if (b) b.textContent = e.message; }
+}
+async function pinArtist(btn) {
+  btn.disabled = true;
+  try {
+    await api("/api/artist/pin", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({folder: btn.dataset.f, mbid: btn.dataset.m})});
+    document.getElementById("artistDlg")?.remove(); toast("Saved. Their releases are being checked again."); render();
+  } catch (e) { toast(e.message); btn.disabled = false; }
 }
 async function skipArtist(name) {
   await api("/api/skipped-artists", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({artist:name})});
@@ -487,6 +502,8 @@ async function renderMusic() {
   const un = st.unmatched_artists;  // hidden by default; one tap shows the list
   if (un.length) sub += ` · <a href="#" class="muted" onclick="showUnmatched = !showUnmatched; render(); return false">${un.length} not matched ${showUnmatched ? "▲" : "▼"}</a>`
     + (showUnmatched ? `<br><span class="muted">No match on any music source for: ${un.map(esc).join(", ")}</span>` : "");
+  const amb = st.ambiguous_artists || [];
+  if (amb.length) sub += `<br><span class="warn">${amb.length} artist${amb.length === 1 ? " shares its name" : "s share their names"} with others: </span>` + amb.map(a => `<a href="#" data-a="${esc(a)}" onclick="pickArtist(this.dataset.a); return false">${esc(a)}</a>`).join(", ");
   setSub(my, sub);
   const chips = [["new", "New"], ["upcoming", "Upcoming"], ["wanted", "Later"], ["gap", "Missing albums"], ["skipped", "Skipped"]]
     .map(([k, l]) => `<button class="chip ${musicFilter === k ? "on" : ""}" onclick="musicFilter='${k}';openAdd=null;render()">${l}${(k === "new" || k === "gap" || k === "upcoming") && st.release_counts[k] ? " " + st.release_counts[k] : ""}</button>`).join("");
@@ -503,13 +520,21 @@ async function renderDownloads() {
   $("#heading").textContent = "Downloads";
   $("#actionBtn").hidden = true;
   const [dl, sorted] = await Promise.all([api("/api/downloads"), api("/api/sorted?limit=30")]);
-  setSub(my, dl.enabled ? (dl.error ? `<span class="fail">Downloader: ${esc(dl.error)}</span>` : "Finished torrents stop right away (no seeding). Music is moved into your library.")
+  setSub(my, dl.enabled ? (dl.error && dl.mode !== "managed" ? `<span class="fail">Downloader: ${esc(dl.error)}</span>` : "Finished torrents stop right away (no seeding). Music is moved into your library.")
     : `<span class="warn">Downloading is switched off. Turn it on in Settings.</span>`);
   let h = "";
-  if (dl.error && /libtorrent/.test(dl.error)) h += `<div class="card" style="margin-bottom:12px"><div class="title" style="font-size:15px">The built-in downloader can't start</div>
-    <div class="hint" style="margin:6px 0 10px">It needs Python 3.13 (3.14 is too new for it). Repair installs Python 3.13 for your user only, without changing your own Python, rebuilds the app on it and restarts the app. It takes a few minutes and needs internet. Your settings are kept.</div>
-    <div class="actions"><button class="small primary" onclick="fixDownloader()">Repair the downloader</button><button class="small" onclick="fixDetails()">Show details</button></div>
-    <pre id="fixInfo" class="hint" style="white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0 0;font-size:12px" hidden></pre></div>`;
+  const su = dl.setup || {};
+  if (dl.enabled && !state_ok(dl) && ["downloading", "unpacking", "starting", "waiting"].includes(su.state)) {
+    h += `<div class="card" style="margin-bottom:12px"><div class="title" style="font-size:15px">Getting the downloader ready</div>
+      <div class="hint" style="margin:6px 0 8px">${esc(su.detail || "Working…")}</div>
+      ${su.progress ? `<div class="bar"><div style="width:${(su.progress * 100).toFixed(0)}%"></div></div>` : ""}
+      <div class="hint" style="margin-top:8px">This happens once. Nothing is installed into Windows.</div></div>`;
+    clearTimeout(dlTimer); dlTimer = setTimeout(() => { if (tab === "downloads") renderDownloads(); }, 3000);  // follow the progress (one timer only)
+  } else if (dl.enabled && dl.error && dl.mode === "managed" && su.state === "failed") {
+    h += `<div class="card" style="margin-bottom:12px"><div class="title" style="font-size:15px">The downloader could not be set up</div>
+      <div class="hint" style="margin:6px 0 10px">${esc(dl.error)}</div>
+      <div class="actions"><button class="small primary" onclick="retryDownloader()">Try again</button></div></div>`;
+  }
   const ts = dl.torrents || [];
   if (ts.length) h += `<h2>Downloading</h2><div class="stack">${ts.map(t => `<div class="card">
       <div class="title" style="font-size:14px">${esc(t.name)}</div>
@@ -523,10 +548,13 @@ async function renderDownloads() {
     : `<div class="empty">Nothing sorted yet.</div>`}</div>`;
   // build the add form once, then only refresh the lists (so typing/picking a file isn't wiped)
   if (my !== seq) return;
-  if (!$("#dlRest")) $("#view").innerHTML = (dl.enabled ? `<div class="card" id="addForm"><div class="title" style="font-size:15px">Add a download</div>${addBox("", "", true)}</div>` : "") + `<div id="dlRest"></div>`;
-  $("#dlRest").innerHTML = h;
+  if (!$("#dlRest")) _last.delete($("#view")), $("#view").innerHTML = (dl.enabled ? `<div class="card" id="addForm"><div class="title" style="font-size:15px">Add a download</div>${addBox("", "", true)}</div>` : "") + `<div id="dlRest"></div>`;
+  swap($("#dlRest"), h);
   const n = ts.length; $("#dlCount").hidden = !n; $("#dlCount").textContent = n;
 }
+let dlTimer = 0;
+function state_ok(dl) { return dl.setup && dl.setup.state === "running"; }
+async function retryDownloader() { try { await api("/api/downloads/retry", {method:"POST"}); toast("Trying again…"); } catch (e) { toast(e.message); } renderDownloads(); }
 async function cancelDl(hash) { await api(`/api/downloads/${hash}`, {method:"DELETE"}); toast("Download cancelled"); render(); }
 
 /* ---------------- SUBTITLES ---------------- */
@@ -625,14 +653,14 @@ async function renderSettings() {
       <div class="field"><label class="l">Release types</label>${types.map(t => `<label class="check"><input type="checkbox" class="rtype" value="${t}" ${m.release_types.includes(t) ? "checked" : ""}>${t}</label>`).join("")}</div>
     </div>
     <div class="card"><div class="title" style="font-size:15px;margin-bottom:8px">Downloads</div>
-      <div class="seg"><label class="check"><input type="radio" name="qEngine" value="builtin" ${q.engine !== "qbittorrent" ? "checked" : ""}>Built-in downloader (recommended)</label>
-        <label class="check"><input type="radio" name="qEngine" value="qbittorrent" ${q.engine === "qbittorrent" ? "checked" : ""}>qBittorrent</label></div>
-      <div class="hint" style="margin:0 0 12px">The built-in downloader needs nothing else installed. Paste a magnet link or choose a .torrent file on the Downloads tab. Finished downloads stop sharing straight away.</div>
+      <div class="seg"><label class="check"><input type="radio" name="qEngine" value="builtin" ${q.engine !== "qbittorrent" ? "checked" : ""}>Built in (recommended)</label>
+        <label class="check"><input type="radio" name="qEngine" value="qbittorrent" ${q.engine === "qbittorrent" ? "checked" : ""}>My own qBittorrent</label></div>
+      <div class="hint" style="margin:0 0 12px">Built in: the app downloads qBittorrent once and runs it hidden. Nothing is installed into Windows and you set nothing up. Paste a magnet link or choose a .torrent file on the Downloads tab. Finished downloads stop sharing straight away.</div>
       <div class="field"><label class="l">Music downloads go to (empty = the app's own folder, then sorted into your library)</label><input type="text" id="qSave" value="${esc(q.save_path)}">
         <button class="small" type="button" style="margin-top:6px" onclick="openPicker('qSave', true)">Browse…</button></div>
       <div class="field"><label class="l">Upload cap while downloading (KB/s, 0 = none)</label><input type="text" id="qUp" value="${esc(q.upload_limit_kb)}" inputmode="numeric"></div>
-      <div class="hint" style="margin:10px 0 6px"><b>qBittorrent settings</b> (only used if you choose qBittorrent)</div>
-      <label class="check"><input type="checkbox" id="qEnabled" ${q.enabled ? "checked" : ""}>Use qBittorrent for downloads</label>
+      <div class="hint" style="margin:10px 0 6px"><b>My own qBittorrent</b> (only used if you choose it; if it isn't running the app uses its own)</div>
+      <label class="check"><input type="checkbox" id="qEnabled" ${q.enabled ? "checked" : ""}>Use my qBittorrent for downloads</label>
       <div class="field"><label class="l">Web UI address</label><input type="text" id="qUrl" value="${esc(q.url)}"></div>
       <div class="field"><label class="l">Username</label><input type="text" id="qUser" value="${esc(q.username)}" autocomplete="off"></div>
       <div class="field"><label class="l">Password</label><input type="text" id="qPass" value="${esc(q.password)}" autocomplete="off" style="-webkit-text-security:disc"></div>
@@ -681,7 +709,7 @@ async function renderSettings() {
     <div class="hint" id="verLine" style="margin:4px 0 10px">Checking version…</div>
     <label class="check"><input type="checkbox" id="updAuto" ${S.updates.auto ? "checked" : ""}>Update automatically when a new version is on GitHub</label>
     <div class="hint" id="updInfo">Press Check to see the newest version.</div>
-    <div class="actions"><button class="small" type="button" onclick="checkUpdates()">Check for updates</button>${window.Android && window.Android.checkUpdate ? `<button class="small" type="button" onclick="Android.checkUpdate()">Check the phone app for updates</button>` : ""}<button class="small primary" type="button" id="updInstall" hidden onclick="installUpdates()">Install now</button></div>
+    <div class="actions"><button class="small" type="button" onclick="checkUpdates()">Check for updates</button>${window.Android && window.Android.checkUpdate ? `<button class="small" type="button" onclick="Android.checkUpdate()">Check the phone app for updates</button>` : ""}${window.Android ? `<button class="small" type="button" onclick="Android.changeServer()">Change server</button>` : ""}<button class="small primary" type="button" id="updInstall" hidden onclick="installUpdates()">Install now</button></div>
     <div class="hint" style="margin-top:10px">Or install from a file:</div>
     <div class="actions"><input type="file" id="updFile" accept=".zip"><button class="small primary" type="button" onclick="doUpdate()">Update now</button></div>
     <div class="hint">Choose the newer ServerAssistant .zip. The program files are replaced and it restarts by itself. Your settings, history and subtitle sources are kept.</div></div>
@@ -878,7 +906,18 @@ let rendering = false;
 let seq = 0, inflight = false;
 const tabCache = {};
 const setSub = (my, h) => { if (my === seq) $("#sub").innerHTML = h; };
-const setView = (my, h) => { if (my === seq) $("#view").innerHTML = h; };
+/* Redraw only when something changed, and keep carousels and the page where the person left them
+   (the page refreshes itself every few seconds; it must not jump back to the first picture). */
+const _last = new WeakMap();
+function swap(el, html) {
+  if (!el || _last.get(el) === html) return;
+  const rails = {}; el.querySelectorAll(".rail[id]").forEach(r => rails[r.id] = r.scrollLeft);
+  const y = window.scrollY;
+  el.innerHTML = html; _last.set(el, html);
+  el.querySelectorAll(".rail[id]").forEach(r => { if (rails[r.id]) r.scrollLeft = rails[r.id]; });
+  if (Math.abs(window.scrollY - y) > 2) window.scrollTo(0, y);
+}
+const setView = (my, h) => { if (my === seq) swap($("#view"), h); };
 async function render() {
   const my = ++seq, myTab = tab; inflight = true;
   try {
@@ -888,6 +927,7 @@ async function render() {
     else if (tab === "subs") await renderSubs();
     else await renderSettings();
     if (my !== seq) return;  // another tab was opened meanwhile
+    savePrefs();
     tabCache[myTab] = { heading: $("#heading").textContent, sub: $("#sub").innerHTML, view: $("#view").innerHTML };
     const st = await api("/api/status"); const n = st.release_counts.new || 0;
     $("#newCount").hidden = !n; $("#newCount").textContent = n;
@@ -896,7 +936,7 @@ async function render() {
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => { selectTab(b.dataset.tab); window.scrollTo(0, 0); render(); });
 function selectTab(name) {
-  tab = name; openAdd = null; confirmStop = null;
+  tab = name; openAdd = null; confirmStop = null; _last.delete($("#view"));
   const c = tabCache[name];  // show what we had last time straight away, then refresh behind it
   if (c && name !== "settings") { $("#heading").textContent = c.heading; $("#sub").innerHTML = c.sub; $("#view").innerHTML = c.view; }
   else { $("#heading").textContent = ({server:"Server", music:"Music", downloads:"Downloads", subs:"Subtitles", settings:"Settings"})[name]; $("#sub").textContent = ""; $("#view").innerHTML = `<div class="empty">Loading…</div>`; }
@@ -904,8 +944,11 @@ function selectTab(name) {
   history.replaceState(null, "", "#" + name);
 }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-if (window.Android) { $("#appGear").hidden = false; $("#appGear").onclick = () => Android.changeServer(); }
 const start = location.hash.slice(1);
+/* what you had selected (music filter, carousel tab...) is remembered in this browser, also across app updates */
+function loadPrefs() { try { const p = JSON.parse(localStorage.getItem("sa.ui") || "{}"); if (p.musicFilter) musicFilter = p.musicFilter; if (p.recTab) recTab = p.recTab; if (p.histTab) histTab = p.histTab; } catch (e) {} }
+function savePrefs() { try { localStorage.setItem("sa.ui", JSON.stringify({musicFilter, recTab, histTab})); } catch (e) {} }
+loadPrefs();
 if (["server", "music", "downloads", "subs", "settings"].includes(start)) selectTab(start);
 render();
 setInterval(() => { if (inflight || (tab === "music" && openAdd) || tab === "settings") return; render(); }, 5000);

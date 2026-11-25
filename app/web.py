@@ -17,7 +17,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
-from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, releases, sorter, subsources, subtitles, system, torrent, unseen, repair
+from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, qbmanager, releases, safety, sorter, subsources, subtitles, system, unseen
 from .config import DATA, ROOT, VERSION, load_config, save_config
 from .db import DB
 
@@ -30,7 +30,8 @@ class State:
         self.cfg = load_config()
         self.db = DB(DATA / "server_assistant.db")
         self.plex = plex.Plex(self.cfg)
-        self.qbit, self.dl_problem = None, ""
+        self.qbit, self.dl_problem, self.dl_mode = None, "", "off"
+        self.qbm = qbmanager.Manager(DATA)
         self.qbit = self.make_downloader()
         self.qbit_error = self.dl_problem
         self.monitor = system.SystemMonitor(self.cfg["system"]["drives"])
@@ -88,22 +89,32 @@ class State:
         self.cfg["subtitles"]["roots"] = [r for r in pick(self.cfg["subtitles"]["movie_folders"], self.plex_folders["movie"]) if norm(r) not in ex_v]
         self.paths_at = time.time()
 
-    def make_downloader(self):
-        """The built-in torrent client (default) or qBittorrent, depending on Settings."""
+    def downloader_mode(self) -> str:
+        """off | external (your own qBittorrent) | managed (the one the app sets up and starts itself)."""
         q = self.cfg["qbittorrent"]
+        if q.get("engine", "builtin") == "qbittorrent":
+            if not q.get("enabled"):
+                return "off"
+            if self.qbm.answers(q["url"]):
+                self.qbm.note_external()
+                return "external"
+            if self.qbm.meta.get("external_seen"):
+                return "external"   # their own qBittorrent is just not running right now: say so, never replace it
+            # nothing was ever listening at that address: use the app's own qBittorrent instead of showing an error
+        return "managed"
+
+    def make_downloader(self):
+        """The app's own qBittorrent (default) or one you run yourself, depending on Settings."""
         self.dl_problem = ""
-        if q.get("engine", "builtin") == "builtin":
-            if isinstance(self.qbit, torrent.BuiltinClient):  # keep the running engine, just apply new settings
-                self.qbit.reconfigure(self.cfg)
-                return self.qbit
-            try:
-                return torrent.BuiltinClient(self.cfg, DATA)
-            except Exception as e:
-                self.dl_problem = str(e)
-                return None
-        if isinstance(self.qbit, torrent.BuiltinClient):
-            self.qbit.close()
-        return qbit.QBit(self.cfg) if q.get("enabled") else None
+        self.dl_mode = self.downloader_mode()
+        if self.dl_mode == "off":
+            return None
+        if self.dl_mode == "external":
+            return qbit.QBit(self.cfg)
+        if self.qbm.running():
+            return qbit.QBit(self.qbm.client_cfg(self.cfg))
+        self.dl_problem = qbmanager.describe()
+        return None
 
     def rebuild_clients(self):
         self.plex = plex.Plex(self.cfg)
@@ -166,7 +177,7 @@ def _sorter_loop(st: State):
                 qbit.handle_finished(st.db, st.cfg, st.qbit, st.import_torrent)
                 st.qbit_error = ""
             except Exception as e:
-                st.qbit_error = str(e)[:200]
+                st.qbit_error = _friendly(e)
         st.stop.wait(15)
 
 
@@ -196,6 +207,12 @@ def _plex_library_loop(st: State):
                     log.exception("Subtitle scan crashed")
         n += 1
         try:
+            mark = DATA / "safety" / "daily" / "taken.txt"
+            if not mark.exists() or time.time() - mark.stat().st_mtime > 20 * 3600:
+                safety.snapshot(DATA, "daily")
+        except Exception:
+            pass
+        try:
             b = st.cfg["backup"]
             if b.get("enabled") and b.get("folder"):
                 files = backup.existing(b["folder"])
@@ -207,21 +224,26 @@ def _plex_library_loop(st: State):
         st.stop.wait(3 * 3600)
 
 
-def _prepare_downloader():
-    """The downloader was created before libtorrent could be installed: install it, then start the downloader again."""
-    try:
-        torrent.ensure_libtorrent()
-        if torrent.LT_STATE["state"] == "ok" and not isinstance(state.qbit, torrent.BuiltinClient) \
-                and state.cfg["qbittorrent"].get("engine", "builtin") == "builtin":
-            state.qbit = state.make_downloader()
-            state.qbit_error = state.dl_problem
-            log.info("Built-in downloader started")
-        elif torrent.LT_STATE["state"] == "failed":
-            state.dl_problem = ("The built-in downloader needs the 'libtorrent' component and could not install it. Reason: "
-                                + torrent.LT_STATE["detail"] + " (Or pick qBittorrent in Settings.)")
-            state.qbit_error = state.dl_problem
-    except Exception:
-        log.exception("Preparing the downloader failed")
+def _downloader_loop(st: State):
+    """Keeps the app's own qBittorrent set up and running, and hands it to the app as soon as it answers."""
+    while not st.stop.is_set():
+        try:
+            mode = st.downloader_mode()
+            if mode != st.dl_mode:   # settings changed, or the person's own qBittorrent appeared
+                st.qbit = st.make_downloader()
+                st.qbit_error = st.dl_problem
+            elif mode == "managed":
+                st.qbm.tick()
+                if st.qbit is None and st.qbm.running():
+                    st.qbit = st.make_downloader()
+                    st.qbit_error = st.dl_problem
+                elif st.qbit is None:
+                    st.dl_problem = qbmanager.describe()
+            elif mode == "external" and st.qbit is None:
+                st.qbit = st.make_downloader()
+        except Exception:
+            log.exception("Downloader check crashed")
+        st.stop.wait(4 if qbmanager.STATE["state"] in ("downloading", "unpacking", "starting", "waiting") else 15)
 
 
 @asynccontextmanager
@@ -234,7 +256,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=discovery.advertise, args=(int(state.cfg["server"]["port"]),), daemon=True).start()
     threading.Thread(target=state.tailnet.start, args=(state.cfg,), daemon=True).start()
     threading.Thread(target=state.resolve_paths, daemon=True).start()  # ask Plex for folders in the background
-    threading.Thread(target=_prepare_downloader, daemon=True).start()
+    threading.Thread(target=_downloader_loop, args=(state,), daemon=True).start()
     yield
     state.tailnet.stop()
     discovery.stop()
@@ -423,7 +445,8 @@ def status():
     counts["new"] = max(0, counts.get("new", 0) - up)
     return {
         **_library_info(),
-        "unmatched_artists": [r["folder"] for r in state.db.query("SELECT folder FROM artists WHERE mbid='' AND folder NOT IN (SELECT artist FROM releases)")],
+        "unmatched_artists": [r["folder"] for r in state.db.query("SELECT folder FROM artists WHERE mbid='' AND COALESCE(mb_name,'')<>'AMBIGUOUS' AND folder NOT IN (SELECT artist FROM releases)")],
+        "ambiguous_artists": [r["folder"] for r in state.db.query("SELECT folder FROM artists WHERE mbid='' AND mb_name='AMBIGUOUS'")],
         "release_counts": counts,
         "release_check": state.release_progress,
         "subtitles": {**state.subs_progress, "enabled": bool(state.cfg["subtitles"].get("enabled") and any(x.get("enabled", True) for x in state.sources)),
@@ -432,19 +455,22 @@ def status():
     }
 
 
+def _is_future(r: dict) -> bool:
+    d = r.get("date") or ""
+    return len(d) >= 7 and d > _today()
+
+
 @app.get("/api/releases")
 def list_releases(status: str = "new", when: str = ""):
-    """when=upcoming: not released yet. For status=new without `when`, only albums that are already out."""
+    """Albums that are already out. Announced albums (not released yet) only show under when=upcoming."""
     statuses = status.split(",")
     marks = ",".join("?" * len(statuses))
     rows = state.db.query(f"SELECT * FROM releases WHERE status IN ({marks}) ORDER BY date DESC, artist", statuses)
-    if statuses == ["new"]:
-        today = _today()
-        future = lambda r: len(r["date"] or "") >= 7 and r["date"] > today
-        rows = [r for r in rows if future(r)] if when == "upcoming" else [r for r in rows if not future(r)]
-        if when == "upcoming":
-            rows.sort(key=lambda r: r["date"])
-    return rows
+    if when == "upcoming":
+        rows = [r for r in rows if _is_future(r) and r["status"] == "new"]
+        rows.sort(key=lambda r: r["date"])
+        return rows
+    return [r for r in rows if not _is_future(r)]
 
 
 class StatusBody(BaseModel):
@@ -463,6 +489,35 @@ def set_release_status(mbid: str, body: StatusBody):
 
 class ArtistBody(BaseModel):
     artist: str
+
+
+def _owned_for(folder: str) -> set[str]:
+    return library.owned_albums(state.cfg["music"]["roots"], folder) | releases.PLEX_ALBUMS.get(library.normalize(folder), set())
+
+
+@app.get("/api/artist/candidates")
+async def artist_candidates(folder: str):
+    """Artists that share this folder's name, with what tells them apart, so you can say which one is yours."""
+    try:
+        return await asyncio.get_running_loop().run_in_executor(None, lambda: releases.artist_candidates(folder, _owned_for(folder)))
+    except Exception as e:
+        raise HTTPException(502, "MusicBrainz didn't answer: " + str(e)[:120])
+
+
+class PinBody(BaseModel):
+    folder: str
+    mbid: str
+
+
+@app.post("/api/artist/pin")
+def artist_pin(body: PinBody):
+    """Remember which MusicBrainz artist a folder is. Their old (wrong) listings are cleared and the list is rebuilt."""
+    state.db.execute("INSERT OR REPLACE INTO artist_pins (folder, mbid, at) VALUES (?,?,datetime('now'))", (body.folder, body.mbid))
+    state.db.execute("INSERT OR REPLACE INTO artists (folder, mbid, mb_name, last_check) VALUES (?,?,?,NULL)", (body.folder, body.mbid, ""))
+    # listings you had not acted on are rebuilt from the right artist; what you chose to download, skipped or already own stays
+    state.db.execute("DELETE FROM releases WHERE artist=? AND status IN ('new','gap')", (body.folder,))
+    state.kick_releases.set()
+    return {"ok": True}
 
 
 @app.get("/api/skipped-artists")
@@ -499,25 +554,6 @@ def scan_subtitles_now():
 
 
 _RECENT = {"at": 0.0, "data": {"audio": [], "video": []}}
-
-
-@app.get("/api/downloads/fix-log")
-def fix_downloader_log():
-    """Which Python the server runs and how the repair is going (read from the dashboard)."""
-    return {"python": sys.version.split()[0], "bits": 64 if sys.maxsize > 2**32 else 32, "environment": sys.prefix,
-            "libtorrent": torrent.LT_STATE, "running": repair.STATE["running"], "done": repair.STATE["done"],
-            "error": repair.STATE["error"], "log": "\n".join(repair.STATE["lines"]),
-            "old_environments": sorted(p.name for p in ROOT.glob(".venv-old*"))}
-
-
-@app.post("/api/downloads/fix")
-def fix_downloader():
-    """Rebuild the program's environment on Python 3.13 so the built-in downloader (libtorrent) works. Windows only."""
-    if sys.platform != "win32":
-        raise HTTPException(400, "This repair is only available in the Windows program.")
-    if not repair.start(ROOT):
-        raise HTTPException(409, "The repair is already running.")
-    return {"ok": True}
 
 
 @app.get("/api/library/recent")
@@ -615,7 +651,7 @@ def weekly_summary():
     q = lambda sql: state.db.query(sql, (iso,))[0]["n"]
     out["subtitles"] = q("SELECT COUNT(*) n FROM subtitle_log WHERE status='downloaded' AND at > ?")
     out["sorted"] = q("SELECT COUNT(*) n FROM sort_log WHERE ok=1 AND at > ?")
-    out["releases"] = q("SELECT COUNT(*) n FROM releases WHERE found_at > ?")
+    out["releases"] = q(f"SELECT COUNT(*) n FROM releases WHERE found_at > ? AND status IN ('new','wanted','got') AND (length(date) < 7 OR date <= '{_today()}')")
     drives = state.monitor.snapshot().get("drives", [])
     if drives:
         low = min(drives, key=lambda d: d["free"] / max(d["total"], 1))
@@ -692,27 +728,46 @@ def subtitle_log(limit: int = 80):
 
 
 # ---------------- downloads (qBittorrent) ----------------
+def _friendly(e: Exception) -> str:
+    """Plain words for the usual qBittorrent connection errors."""
+    t = str(e)
+    if isinstance(e, requests.ConnectionError) or "Max retries exceeded" in t or "Connection refused" in t:
+        return "qBittorrent isn't answering. If you use your own, start it and check the address in Settings; otherwise wait a moment."
+    return t[:200]
+
+
 @app.get("/api/downloads")
 def downloads():
+    base = {"mode": state.dl_mode, "setup": dict(qbmanager.STATE)}
     if not state.qbit:
-        return {"enabled": bool(state.dl_problem), "error": state.dl_problem, "torrents": []}
+        if state.dl_mode == "off":
+            return {**base, "enabled": False, "error": "", "torrents": []}
+        return {**base, "enabled": True, "error": "" if qbmanager.STATE["state"] in ("downloading", "unpacking", "starting", "waiting", "idle")
+                else state.dl_problem, "torrents": []}
     try:
         ts = state.qbit.torrents()
     except Exception as e:
-        return {"enabled": True, "error": str(e)[:200], "torrents": []}
+        return {**base, "enabled": True, "error": _friendly(e), "torrents": []}
     mine = [t for t in ts if state.qbit.tag in (t.get("tags") or "")]
-    return {"enabled": True, "error": state.qbit_error, "torrents": [{
+    return {**base, "enabled": True, "error": state.qbit_error, "torrents": [{
         "hash": t["hash"], "name": t["name"], "progress": t.get("progress", 0) * 100, "state": t.get("state"),
         "size": t.get("size"), "dlspeed": t.get("dlspeed"), "upspeed": t.get("upspeed"), "eta": t.get("eta"),
         "music": t.get("category") == state.qbit.category,
     } for t in mine]}
 
 
+@app.post("/api/downloads/retry")
+def downloads_retry():
+    """Try setting up the app's own qBittorrent again right away (it otherwise retries every 10 minutes)."""
+    state.qbm.retry()
+    return {"ok": True}
+
+
 @app.post("/api/downloads")
 async def add_download(links: str = Form(""), music: bool = Form(True), mbid: str = Form(""),
                        files: list[UploadFile] | None = File(None)):
     if not state.qbit:
-        raise HTTPException(400, state.dl_problem or "Downloading is switched off. Turn it on in Settings.")
+        raise HTTPException(400, state.dl_problem or "The downloader is still getting ready. Wait a moment and try again.")
     link_list = [l.strip() for l in links.splitlines() if l.strip()]
     bad = [l for l in link_list if not l.lower().startswith(("magnet:", "http://", "https://"))]
     if bad:
@@ -723,7 +778,7 @@ async def add_download(links: str = Form(""), music: bool = Form(True), mbid: st
     try:  # in a worker thread: fetching a .torrent link can take a while and must not freeze the dashboard
         await asyncio.get_running_loop().run_in_executor(None, lambda: state.qbit.add(link_list, uploads, music=music))
     except Exception as e:
-        raise HTTPException(502, str(e)[:200])
+        raise HTTPException(502, _friendly(e))
     if mbid:
         state.db.execute("UPDATE releases SET status='wanted' WHERE mbid=? AND status IN ('new','gap')", (mbid,))
     return {"ok": True}
@@ -871,8 +926,11 @@ def _clean_list(v) -> list[str]:
 
 @app.post("/api/settings")
 def save_settings(body: SettingsBody):
+    """Only the settings the page actually sent are changed. A page that is older than the server (for example left
+    open during an update) can therefore never reset settings it doesn't know about."""
     c = state.cfg
     m, sub, q, p = c["music"], c["subtitles"], c["qbittorrent"], c["plex"]
+    sent = body.model_fields_set
 
     music_custom = _clean_list(body.music.get("custom"))
     movie_custom = _clean_list(body.movies.get("custom"))
@@ -889,48 +947,80 @@ def save_settings(body: SettingsBody):
     def secret(new, old):
         return old if new == SECRET else (new or "")
 
-    m["library"] = "auto" if body.music.get("mode") != "custom" else music_custom
-    m["download_folders"] = downloads
-    m["exclude"] = _clean_list(body.music.get("exclude"))
-    sub["exclude"] = _clean_list(body.movies.get("exclude"))
-    m["lookback_days"] = int(body.music.get("lookback_days") or 120)
-    m["release_types"] = [t for t in body.music.get("release_types", []) if t in ("Album", "Single", "EP")] or ["Album"]
-    m["catalog_gaps"] = bool(body.music.get("catalog_gaps"))
-    ud = body.updates or {}
-    c["updates"] = {**c["updates"], "auto": bool(ud.get("auto")), "repo": (ud.get("repo") or c["updates"]["repo"]).strip()}
-    tn = body.tailnet or {}
-    c["tailnet"] = {"enabled": bool(tn.get("enabled")), "mode": "connect" if tn.get("mode") == "connect" else "serve",
-                    "name": (tn.get("name") or "serverassistant").strip().lower(), "authkey": (tn.get("authkey") or "").strip(),
-                    "helper_url": (tn.get("helper_url") or "").strip()}
-    threading.Thread(target=state.tailnet.start, args=(c,), daemon=True).start()
-    bk = body.backup or {}
-    c["backup"] = {"enabled": bool(bk.get("enabled")), "folder": (bk.get("folder") or "").strip(),
-                   "keep": max(1, min(10, int(bk.get("keep") or 2))), "every_days": max(1, int(bk.get("every_days") or 7))}
-    if c["backup"]["enabled"] and not c["backup"]["folder"]:
-        raise HTTPException(400, "Choose a folder for the backups, or turn backups off.")
-    if "sources" in body.music:
-        m["sources"] = [x for x in body.music["sources"] if x in ("musicbrainz", "deezer", "itunes")] or ["musicbrainz"]
-    if body.music.get("album_folder_format"):
-        m["album_folder_format"] = body.music["album_folder_format"]
-    sub["movie_folders"] = "auto" if body.movies.get("mode") != "custom" else movie_custom
+    def has(d: dict, key: str) -> bool:
+        return key in d
+
+    bm = body.music
+    if has(bm, "mode"):
+        m["library"] = "auto" if bm.get("mode") != "custom" else music_custom
+    if has(bm, "download_folders"):
+        m["download_folders"] = downloads
+    if has(bm, "exclude"):
+        m["exclude"] = _clean_list(bm.get("exclude"))
+    if has(body.movies, "exclude"):
+        sub["exclude"] = _clean_list(body.movies.get("exclude"))
+    if has(bm, "lookback_days"):
+        m["lookback_days"] = int(bm.get("lookback_days") or 120)
+    if has(bm, "release_types"):
+        m["release_types"] = [t for t in bm.get("release_types", []) if t in ("Album", "Single", "EP")] or ["Album"]
+    if has(bm, "catalog_gaps"):
+        m["catalog_gaps"] = bool(bm.get("catalog_gaps"))
+    if "updates" in sent and body.updates:
+        ud = body.updates
+        c["updates"] = {**c["updates"], "auto": bool(ud["auto"]) if "auto" in ud else bool(c["updates"].get("auto")),
+                        "repo": (ud.get("repo") or c["updates"]["repo"]).strip()}
+    if "tailnet" in sent and body.tailnet:
+        tn, old = body.tailnet, c["tailnet"]
+        c["tailnet"] = {**old, "enabled": bool(tn["enabled"]) if "enabled" in tn else bool(old.get("enabled")),
+                        "mode": ("connect" if tn.get("mode") == "connect" else "serve") if "mode" in tn else old.get("mode", "serve"),
+                        "name": (tn.get("name") or old.get("name") or "serverassistant").strip().lower(),
+                        "authkey": (tn.get("authkey") or "").strip() if "authkey" in tn else old.get("authkey", ""),
+                        "helper_url": (tn.get("helper_url") or "").strip() if "helper_url" in tn else old.get("helper_url", "")}
+        threading.Thread(target=state.tailnet.start, args=(c,), daemon=True).start()
+    if "backup" in sent and body.backup:
+        bk, old = body.backup, c["backup"]
+        c["backup"] = {"enabled": bool(bk["enabled"]) if "enabled" in bk else bool(old.get("enabled")),
+                       "folder": (bk.get("folder") or "").strip() if "folder" in bk else old.get("folder", ""),
+                       "keep": max(1, min(10, int(bk.get("keep") or old.get("keep", 2)))),
+                       "every_days": max(1, int(bk.get("every_days") or old.get("every_days", 7)))}
+        if c["backup"]["enabled"] and not c["backup"]["folder"]:
+            raise HTTPException(400, "Choose a folder for the backups, or turn backups off.")
+    if "sources" in bm:
+        m["sources"] = [x for x in bm["sources"] if x in ("musicbrainz", "deezer", "itunes")] or ["musicbrainz"]
+    if bm.get("album_folder_format"):
+        m["album_folder_format"] = bm["album_folder_format"]
+    if has(body.movies, "mode"):
+        sub["movie_folders"] = "auto" if body.movies.get("mode") != "custom" else movie_custom
 
     s = body.subtitles
-    sub["enabled"] = bool(s.get("enabled"))
-    sub["languages"] = [x.strip().lower() for x in str(s.get("languages", "")).replace(";", ",").split(",") if x.strip()] \
-        if isinstance(s.get("languages"), str) else [x.lower() for x in s.get("languages", [])]
+    if has(s, "enabled"):
+        sub["enabled"] = bool(s.get("enabled"))
+    if has(s, "languages"):
+        sub["languages"] = [x.strip().lower() for x in str(s.get("languages", "")).replace(";", ",").split(",") if x.strip()] \
+            if isinstance(s.get("languages"), str) else [x.lower() for x in s.get("languages", [])]
 
     t = body.qbittorrent
-    q["engine"] = "qbittorrent" if t.get("engine") == "qbittorrent" else "builtin"
-    q["enabled"] = bool(t.get("enabled"))
-    q["url"] = (t.get("url") or "http://localhost:8080").rstrip("/")
-    q["username"] = t.get("username", "")
-    q["password"] = secret(t.get("password"), q.get("password", ""))
-    q["save_path"] = (t.get("save_path") or "").strip()
-    q["upload_limit_kb"] = int(t.get("upload_limit_kb") or 0)
+    if has(t, "engine"):
+        q["engine"] = "qbittorrent" if t.get("engine") == "qbittorrent" else "builtin"
+    if has(t, "enabled"):
+        q["enabled"] = bool(t.get("enabled"))
+    if has(t, "url"):
+        q["url"] = (t.get("url") or "http://localhost:8080").rstrip("/")
+    if has(t, "username"):
+        q["username"] = t.get("username", "")
+    if has(t, "password"):
+        q["password"] = secret(t.get("password"), q.get("password", ""))
+    if has(t, "save_path"):
+        q["save_path"] = (t.get("save_path") or "").strip()
+    if has(t, "upload_limit_kb"):
+        q["upload_limit_kb"] = int(t.get("upload_limit_kb") or 0)
 
-    p["url"] = (body.plex.get("url") or "http://localhost:32400").rstrip("/")
-    p["token"] = secret(body.plex.get("token"), p.get("token", ""))
-    c["system"]["drives"] = _clean_list(body.system.get("drives"))
+    if has(body.plex, "url"):
+        p["url"] = (body.plex.get("url") or "http://localhost:32400").rstrip("/")
+    if has(body.plex, "token"):
+        p["token"] = secret(body.plex.get("token"), p.get("token", ""))
+    if has(body.system, "drives"):
+        c["system"]["drives"] = _clean_list(body.system.get("drives"))
 
     save_config(c)
     old_roots = list(m.get("roots", []))
@@ -981,7 +1071,9 @@ import io
 import subprocess
 import zipfile
 
-UPDATE_KEEP_TOP = {"config.toml", "subtitle_sources.json", "installed.flag", "server.log", "server.old.log"}
+UPDATE_KEEP_TOP = {"config.toml", "config.toml.bak", "subtitle_sources.json", "installed.flag", "server.log", "server.old.log",
+                   "unseen_ignore.json", "plex_folders.json", "torrents.json"}
+UPDATE_SKIP_TOP_DIRS = ("safety/", "qbittorrent/", "downloads/", "backups/")
 UPDATE_SKIP_DIRS = (".venv/", "__pycache__/", "android-source/", "desktop-app/", "installer/")
 
 
@@ -1006,13 +1098,14 @@ def _apply_update(raw: bytes) -> dict:
     if not runs or (runs[0][:-6] + "app/web.py") not in names:
         raise HTTPException(400, "This zip doesn't look like a Server Assistant update.")
     prefix = runs[0][:-6]
+    safety.snapshot(DATA, "before-update")   # settings and lists are copied aside first, whatever happens next
     new_version = z.read(prefix + "VERSION").decode().strip() if prefix + "VERSION" in names else "?"
     old_req = _file_hash(ROOT / "requirements.txt") + _file_hash(ROOT / "requirements-optional.txt")
     root = ROOT.resolve()
     written = 0
     for n in names:
         rel = n[len(prefix):]
-        if not rel or rel in UPDATE_KEEP_TOP or rel.endswith(".db") or any(rel.startswith(d) or f"/{d}" in rel for d in UPDATE_SKIP_DIRS):
+        if not rel or rel in UPDATE_KEEP_TOP or rel.endswith(".db") or any(rel.startswith(d) or f"/{d}" in rel for d in UPDATE_SKIP_DIRS + UPDATE_SKIP_TOP_DIRS):
             continue
         target = (ROOT / rel).resolve()
         if root not in target.parents:

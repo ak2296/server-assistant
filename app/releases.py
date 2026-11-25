@@ -36,20 +36,58 @@ def _get(path: str, params: dict) -> dict:
     return {}
 
 
-def lookup_artist(name: str) -> tuple[str, str]:
-    """Return (mbid, canonical name), or ('', '') when there's no confident match."""
-    data = _get("artist/", {"query": f'artist:"{name}"', "limit": 5})
+def _exact_candidates(name: str) -> list[dict]:
+    """MusicBrainz artists whose name (or alias) is exactly this name, best search score first."""
+    data = _get("artist/", {"query": f'artist:"{name}"', "limit": 10})
     target = library.normalize(name)
-    best = None
+    out = []
     for a in data.get("artists", []):
         names = [a.get("name", ""), a.get("sort-name", "")] + [x.get("name", "") for x in a.get("aliases", []) or []]
-        exact = any(library.normalize(n) == target for n in names)
-        score = int(a.get("score", 0)) + (50 if exact else 0)
-        if best is None or score > best[0]:
-            best = (score, a)
-    if best and best[0] >= 140:  # exact name match with a high search score
-        return best[1]["id"], best[1]["name"]
-    return "", ""
+        if any(library.normalize(n) == target for n in names) and int(a.get("score", 0)) >= 90:
+            out.append(a)
+    out.sort(key=lambda a: -int(a.get("score", 0)))
+    return out
+
+
+def _overlap(mbid: str, owned: set[str]) -> tuple[int, list[str]]:
+    """How many of the albums you own this MusicBrainz artist has made (+ a few of its titles, for display)."""
+    groups = release_groups(mbid)
+    hits = sum(1 for g in groups if library.is_owned(g["title"], owned))
+    recent = [g["title"] for g in sorted(groups, key=lambda g: g.get("first-release-date") or "", reverse=True)[:4]]
+    return hits, recent
+
+
+def lookup_artist(name: str, owned: set[str] | None = None) -> tuple[str, str]:
+    """Return (mbid, canonical name). ('', '') = nothing found; ('', 'AMBIGUOUS') = several artists share this name
+    and your albums don't settle which one is yours (you are asked to choose)."""
+    cands = _exact_candidates(name)
+    if not cands:
+        return "", ""
+    if len(cands) == 1:
+        return cands[0]["id"], cands[0]["name"]
+    scored = []
+    for a in cands[:4]:
+        hits, _ = _overlap(a["id"], owned or set())
+        scored.append((hits, int(a.get("score", 0)), a))
+    scored.sort(key=lambda x: (-x[0], -x[1]))
+    if scored[0][0] > 0 and (len(scored) < 2 or scored[0][0] > scored[1][0]):
+        return scored[0][2]["id"], scored[0][2]["name"]
+    return "", "AMBIGUOUS"
+
+
+def artist_candidates(name: str, owned: set[str]) -> list[dict]:
+    """For the 'Wrong artist?' picker: who could this folder be, and what do they have in common with your albums."""
+    out = []
+    for a in _exact_candidates(name)[:5] or []:
+        try:
+            hits, recent = _overlap(a["id"], owned)
+        except Exception:
+            hits, recent = 0, []
+        life = a.get("life-span") or {}
+        out.append({"mbid": a["id"], "name": a.get("name", ""), "note": a.get("disambiguation", ""), "country": a.get("country") or a.get("area", {}).get("name", ""),
+                    "type": a.get("type", ""), "begin": (life.get("begin") or "")[:4], "owned": hits, "recent": recent})
+    out.sort(key=lambda c: -c["owned"])
+    return out
 
 
 def release_groups(mbid: str) -> list[dict]:
@@ -63,28 +101,36 @@ def release_groups(mbid: str) -> list[dict]:
             return out
 
 
-def _candidates(db: DB, cfg: dict, folder: str) -> list[dict]:
+def _candidates(db: DB, cfg: dict, folder: str, owned: set[str] | None = None) -> list[dict]:
     """Collect releases for one artist from every enabled source (MusicBrainz first)."""
     music = cfg["music"]
     sources = [x.lower() for x in music.get("sources", ["musicbrainz", "deezer", "itunes"])]
     found: list[dict] = []
+    owned = owned or set()
+    pin = (db.query("SELECT mbid FROM artist_pins WHERE folder=?", (folder,)) or [{}])[0].get("mbid") or ""
+    known = set(owned)   # titles that tell apart two artists with the same name: what you own + what MusicBrainz lists
 
-    if "musicbrainz" in sources:
+    if "musicbrainz" in sources or pin:
         try:
             row = db.query("SELECT * FROM artists WHERE folder=?", (folder,))
-            if row and row[0]["mbid"] is not None:
+            if pin:
+                mbid, mb_name = pin, (row[0]["mb_name"] if row else "")
+            elif row and row[0]["mbid"] is not None and row[0]["mb_name"] != "AMBIGUOUS":
                 mbid, mb_name = row[0]["mbid"], row[0]["mb_name"]
             else:
-                mbid, mb_name = lookup_artist(folder)
+                mbid, mb_name = lookup_artist(folder, owned)
                 db.execute("INSERT OR REPLACE INTO artists (folder, mbid, mb_name, last_check) VALUES (?,?,?,?)",
                            (folder, mbid, mb_name, None))
             if mbid:
                 for g in release_groups(mbid):
+                    known.add(library.normalize(g["title"]))
                     found.append({"id": g["id"], "title": g["title"], "type": g.get("primary-type") or "",
                                   "date": g.get("first-release-date") or "",
                                   "cover": f"https://coverartarchive.org/release-group/{g['id']}/front-250",
                                   "url": f"https://musicbrainz.org/release-group/{g['id']}",
                                   "secondary": g.get("secondary-types") or [], "src": "musicbrainz"})
+            elif mb_name == "AMBIGUOUS":
+                return []   # several artists share the name: nothing is listed until you choose (Music > Skipped/unmatched)
         except Exception as e:
             log.warning("MusicBrainz failed for %s: %s", folder, e)
 
@@ -92,7 +138,7 @@ def _candidates(db: DB, cfg: dict, folder: str) -> list[dict]:
         if name not in sources:
             continue
         try:
-            for r in musicsources.SOURCES[name](folder):
+            for r in musicsources.SOURCES[name](folder, known):
                 found.append({**r, "src": name})
         except Exception as e:
             log.warning("%s failed for %s: %s", name, folder, e)
@@ -111,7 +157,7 @@ def check_artist(db: DB, cfg: dict, folder: str) -> int:
     is_seen = lambda t: any(library.same_title(t, x) for x in seen)
     added = 0
 
-    for g in _candidates(db, cfg, folder):
+    for g in _candidates(db, cfg, folder, owned):
         d = g["date"]
         if len(d) < 4:
             continue

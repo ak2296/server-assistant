@@ -353,8 +353,7 @@ class Plex:
     def details(self) -> dict:
         """Slower data - refreshed less often."""
         out = {}
-        for key, fn in (("libraries", self.libraries), ("history", self.history),
-                        ("remote", self.remote_access), ("update", self.update)):
+        for key, fn in (("libraries", self.libraries), ("remote", self.remote_access), ("update", self.update)):
             try:
                 out[key] = fn()
             except Exception as e:

@@ -356,20 +356,6 @@ async function renderServer() {
       ${uns.folders.slice(0, 40).map(g => `<div class="kv" style="padding:6px 0;gap:10px;align-items:flex-start"><span style="min-width:0"><span style="color:var(--text);overflow-wrap:anywhere">${esc(g.folder.split(/[\\/]/).slice(-2).join(" / "))}</span><br><span class="meta">${g.kind === "audio" ? "♪" : "▶"} ${g.files.length} file${g.files.length > 1 ? "s" : ""} · ${esc(g.files[0])}${g.files.length > 1 ? " …" : ""}</span></span>
         <span style="white-space:nowrap"><button class="small" data-f="${esc(g.folder)}" onclick="sendUnseen(this.dataset.f)">Scan</button> <button class="small" data-f="${esc(g.folder)}" onclick="ignoreUnseen(this.dataset.f)" title="Never list this folder again">Hide</button></span></div>`).join("")}
       ${uns.folders.length > 40 ? `<div class="hint">+${uns.folders.length - 40} more folders</div>` : ""}`, `${uns.count} file${uns.count === 1 ? "" : "s"}`, true);
-    // History
-    const hist = p.history || [];
-    if (hist.length) {
-      const isAudio = x => x.type === "track";
-      const video = hist.filter(x => !isAudio(x)), audio = hist.filter(isAudio);
-      const list = (histTab === "audio" ? audio : video).slice(0, 15);
-      const chips = `<div class="chips" style="padding:0 0 8px"><button class="chip ${histTab === "video" ? "on" : ""}" onclick="histTab='video';render()">Watched ${video.length}</button>
-        <button class="chip ${histTab === "audio" ? "on" : ""}" onclick="histTab='audio';render()">Listened ${audio.length}</button></div>`;
-      const rows = list.length ? list.map(x => `<div class="kv" style="padding:5px 0;gap:10px">
-        <span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.parent ? x.parent + " – " + x.title : x.title)}</span>
-        <span style="white-space:nowrap">${esc(x.user)} · ${ago(x.viewed_at)}</span></div>`).join("")
-        : `<div class="muted" style="padding:8px 0">${histTab === "audio" ? "No music played recently." : "No videos watched recently."}</div>`;
-      h += fold("hist", "History", chips + rows, "watched and listened");
-    }
   }
   setView(my, h);
 }

@@ -5,6 +5,7 @@ Other PCs  -> mode "connect": the helper opens http://127.0.0.1:8766 here and pa
 It never touches Plex or any other port.
 """
 import json
+import socket
 import logging
 import os
 import subprocess
@@ -18,9 +19,22 @@ log = logging.getLogger("tailnet")
 EXE = "satailnet.exe" if sys.platform == "win32" else "satailnet"
 
 
+def _free_port(preferred: int) -> int:
+    """The preferred port if nothing uses it, otherwise any free one (an old helper may still hold 8766)."""
+    for p in (preferred, 0):
+        with socket.socket() as sk:
+            try:
+                sk.bind(("127.0.0.1", p))
+                return sk.getsockname()[1]
+            except OSError:
+                continue
+    return preferred
+
+
 class Tailnet:
     def __init__(self):
         self.proc = None
+        self.local = ""
         self.info = {"state": "off"}
         self.lock = threading.Lock()
 
@@ -65,11 +79,14 @@ class Tailnet:
             state_dir.mkdir(parents=True, exist_ok=True)
             port = str(cfg["server"]["port"]) if "port" in cfg.get("server", {}) else "8765"
             args = [str(self.exe), "-mode", t["mode"], "-dir", str(state_dir), "-port", port]
+            self.local = ""
             if t["mode"] == "serve":
                 args += ["-hostname", t["name"], "-local", f"127.0.0.1:{port}"]
             else:
+                lp = _free_port(8766)
+                self.local = f"http://127.0.0.1:{lp}"
                 args += ["-hostname", t["name"] + "-" + (os.environ.get("COMPUTERNAME") or "pc").lower(),
-                         "-remote", t["name"], "-listen", "127.0.0.1:8766"]
+                         "-remote", t["name"], "-listen", f"127.0.0.1:{lp}"]
             env = dict(os.environ)
             if t.get("authkey"):
                 env["TS_AUTHKEY"] = t["authkey"]
@@ -107,4 +124,4 @@ class Tailnet:
     def status(self, cfg: dict) -> dict:
         t = cfg["tailnet"]
         return {**self.info, "enabled": bool(t.get("enabled")), "mode": t["mode"], "name": t["name"],
-                "installed": self.installed(), "helper_url": t.get("helper_url", "")}
+                "installed": self.installed(), "local": self.local, "helper_url": t.get("helper_url", "")}

@@ -727,7 +727,7 @@ function tailnetText(t) {
   if (!t.installed) return "The helper isn't downloaded yet. Press Download helper.";
   if (t.state === "login") return `Sign in to Tailscale once: <a href="${esc(t.url)}" target="_blank" rel="noopener">open the sign-in page</a>`;
   if (t.state === "up") return t.mode === "serve" ? `Connected. Away from home, open <b>http://${esc(t.name)}:8765</b> (or http://${esc(t.ip)}:8765) on a device with Tailscale.`
-    : `Connected. Open <b>http://127.0.0.1:8766</b> on this PC to reach the server.`;
+    : `Connected. Open <b>${esc(t.local || "http://127.0.0.1:8766")}</b> on this PC to reach the server.`;
   if (t.state === "error") return `<span class="fail">${esc(t.error || "Something went wrong.")}</span>`;
   return "Starting…";
 }

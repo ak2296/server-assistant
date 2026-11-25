@@ -97,16 +97,16 @@ final class Tailnet {
         final StringBuilder diag = new StringBuilder();   // the helper's short "diag:" findings, shown first
         final boolean[] progressed = { false };
         final boolean[] reported = { false };   // true once the watchdog has told the user why it gave up
-        new Thread(new Runnable() {   // nothing from the helper for 90 s: stop waiting and say what it last logged
+        new Thread(new Runnable() {   // nothing from the helper for 150 s: stop waiting and say what it last logged
             public void run() {
-                try { Thread.sleep(90000); } catch (InterruptedException e) { return; }
+                try { Thread.sleep(150000); } catch (InterruptedException e) { return; }
                 if (!progressed[0] && PROC != null) {
                     String t;
                     synchronized (tail) {
                         t = diag + (tail.length() > 700 ? tail.substring(tail.length() - 700) : tail.toString());
                     }
                     reported[0] = true;
-                    listener.onError("Still connecting after 90 seconds. The helper gave no sign-in link and no connection. Its last messages:\n"
+                    listener.onError("Still connecting after 150 seconds. The helper gave no sign-in link and no connection. Its last messages:\n"
                             + (t.length() > 0 ? t : "(none)"));
                     stop();
                 }
@@ -122,7 +122,10 @@ final class Tailnet {
             pb.environment().put("HOME", dir.getPath());
             pb.environment().put("TMPDIR", ctx.getCacheDir().getPath());
             pb.environment().put("SA_IFACES", ifaceSpec());
-            pb.environment().put("TS_NO_LOGS_NO_SUPPORT", "true");   // no log uploads to Tailscale: less traffic, clearer log
+            pb.environment().put("TS_NO_LOGS_NO_SUPPORT", "true");
+            // mobile networks often meddle with plain port 80, where Tailscale first tries to reach its sign-in server
+            pb.environment().put("TS_FORCE_NOISE_443", "true");
+            pb.environment().put("TS_DEBUG_NOISE_DIAL", "true");   // no log uploads to Tailscale: less traffic, clearer log
             pb.environment().put("SSL_CERT_DIR", "/system/etc/security/cacerts");
             final Process mine = pb.start();
             PROC = mine;

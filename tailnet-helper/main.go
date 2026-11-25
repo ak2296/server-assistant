@@ -83,6 +83,27 @@ func installInterfaceGetter() {
 	})
 }
 
+// diagnose writes a few short "diag:" lines (phone only) saying whether this program can reach the internet at all,
+// can look up names, and can reach Tailscale's sign-in server. The app shows them when a connection gets stuck.
+func diagnose() {
+	say := func(format string, args ...any) { fmt.Fprintf(os.Stderr, "diag: "+format+"\n", args...) }
+	_, err := os.Stat("/etc/resolv.conf")
+	say("resolv.conf present=%v", err == nil)
+	if c, err := net.DialTimeout("tcp", "1.1.1.1:443", 5*time.Second); err != nil {
+		say("internet (tcp 1.1.1.1:443) FAILED: %v", err)
+	} else {
+		c.Close()
+		say("internet (tcp 1.1.1.1:443) ok")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	if ips, err := dnscache.Get().Forward.LookupHost(ctx, "controlplane.tailscale.com"); err != nil {
+		say("lookup controlplane FAILED: %v", err)
+	} else {
+		say("lookup controlplane ok: %v", ips)
+	}
+}
+
 func main() {
 	mode := flag.String("mode", "serve", "serve | connect")
 	host := flag.String("hostname", "serverassistant", "name of this node on the tailnet")
@@ -120,6 +141,10 @@ func main() {
 			d := net.Dialer{Timeout: 5 * time.Second}
 			return d.DialContext(ctx, network, "1.1.1.1:53")
 		}
+	}
+
+	if _, phone := os.LookupEnv("SA_IFACES"); phone {
+		go diagnose()
 	}
 
 	logf := func(string, ...any) {}

@@ -94,6 +94,7 @@ final class Tailnet {
         final String listen = "127.0.0.1:" + freePort();
         LOCAL = "http://" + listen;
         final StringBuilder tail = new StringBuilder();
+        final StringBuilder diag = new StringBuilder();   // the helper's short "diag:" findings, shown first
         final boolean[] progressed = { false };
         final boolean[] reported = { false };   // true once the watchdog has told the user why it gave up
         new Thread(new Runnable() {   // nothing from the helper for 90 s: stop waiting and say what it last logged
@@ -101,7 +102,9 @@ final class Tailnet {
                 try { Thread.sleep(90000); } catch (InterruptedException e) { return; }
                 if (!progressed[0] && PROC != null) {
                     String t;
-                    synchronized (tail) { t = tail.length() > 500 ? tail.substring(tail.length() - 500) : tail.toString(); }
+                    synchronized (tail) {
+                        t = diag + (tail.length() > 300 ? tail.substring(tail.length() - 300) : tail.toString());
+                    }
                     reported[0] = true;
                     listener.onError("Still connecting after 90 seconds. The helper gave no sign-in link and no connection. Its last messages:\n"
                             + (t.length() > 0 ? t : "(none)"));
@@ -128,6 +131,7 @@ final class Tailnet {
                 JSONObject j;
                 try { j = new JSONObject(line); } catch (Exception e) {
                     synchronized (tail) {
+                        if (line.startsWith("diag:") && diag.length() < 900) { diag.append(line.substring(5).trim()).append('\n'); continue; }
                         tail.append(line).append('\n');
                         if (tail.length() > 1500) tail.delete(0, tail.length() - 1500);
                     }

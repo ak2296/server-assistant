@@ -17,7 +17,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
-from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, qbmanager, releases, safety, sorter, subdrop, subsources, subtitles, system, unseen
+from . import backup, netfetch, tailnet, discovery, library, plex, plexlib, qbit, qbmanager, releases, safety, sorter, films, subdrop, subsources, subtitles, system, unseen
 from .config import DATA, ROOT, VERSION, load_config, save_config
 from .db import DB
 
@@ -41,6 +41,7 @@ class State:
         self.subscan = plexlib.SubScan(self.db, self.plex)
         self.unseen = unseen.Unseen(self.plex, DATA)
         self.subdrop = subdrop.SubDrop(self.db, self.plex, DATA, self.cfg)
+        self.films = films.Films(self.db, self.plex)
         self.backup_busy = False
         self.tailnet = tailnet.Tailnet()
         self.ov, self.ov_at = {}, 0.0          # short-lived cache of the Plex overview
@@ -122,6 +123,7 @@ class State:
         self.plex = plex.Plex(self.cfg)
         self.subscan.plex = self.plex
         self.subdrop.plex = self.plex
+        self.films.plex = self.plex
         self.unseen.plex = self.plex
         self.qbit = self.make_downloader()
         self.qbit_error = self.dl_problem
@@ -177,6 +179,15 @@ def _subdrop_loop(st: State):
             log.exception("Subtitle inbox crashed")
         st.kick_drop.wait(60)
         st.kick_drop.clear()
+
+
+def _films_loop(st: State):
+    """Film series you own part of: checked in the background once a week (Wikidata), starting 10 minutes after start."""
+    st.stop.wait(600)
+    while not st.stop.is_set():
+        if st.plex.configured and not st.films.series(max_age=films.WEEK).get("checked"):
+            st.films.check_series()
+        st.stop.wait(6 * 3600)
 
 
 def _sorter_loop(st: State):
@@ -265,7 +276,7 @@ def _downloader_loop(st: State):
 async def lifespan(app: FastAPI):
     global state
     state = State()
-    for fn in (_release_loop, _subs_loop, _subdrop_loop, _sorter_loop, _plex_library_loop, _auto_update_loop):
+    for fn in (_release_loop, _subs_loop, _subdrop_loop, _films_loop, _sorter_loop, _plex_library_loop, _auto_update_loop):
         threading.Thread(target=fn, args=(state,), daemon=True).start()
     threading.Thread(target=state.monitor.run_forever, args=(state.stop,), daemon=True).start()
     threading.Thread(target=discovery.advertise, args=(int(state.cfg["server"]["port"]),), daemon=True).start()
@@ -696,6 +707,51 @@ def subdrop_assign(body: DropAssign):
 @app.post("/api/subdrop/discard")
 def subdrop_discard(body: DropAssign):
     state.subdrop.discard(body.file)
+    return {"ok": True}
+
+
+@app.get("/api/films/directors")
+def films_directors():
+    """Directors of the movies in Plex (most movies first), the films you marked to get, and the series check."""
+    try:
+        lib = state.films.library()
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't read your movies from Plex: {_friendly(e)}")
+    s = state.films.series(max_age=10 * 365 * 86400)
+    marks = state.films.marks()
+    for x in s.get("series", []):
+        x["missing"] = [dict(f, mark=marks.get(f["id"], "")) for f in x["missing"] if marks.get(f["id"]) != "skip"]
+    s["series"] = [x for x in s.get("series", []) if x["missing"]]
+    return {"directors": lib["directors"], "movies": len(lib["movies"]), "wanted": state.films.wanted(),
+            "series": s.get("series", []), "series_checked": s.get("checked", ""), "series_progress": state.films.series_progress}
+
+
+@app.get("/api/films/director")
+def films_director(name: str, refresh: bool = False):
+    try:
+        return state.films.director(name, force=refresh)
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't look up {name}'s films: {_friendly(e)}")
+
+
+@app.post("/api/films/series/check")
+def films_series_check():
+    threading.Thread(target=state.films.check_series, daemon=True).start()
+    return {"ok": True}
+
+
+class FilmMark(BaseModel):
+    film: str
+    mark: str = ""
+    title: str = ""
+    year: str = ""
+
+
+@app.post("/api/films/mark")
+def films_mark(body: FilmMark):
+    if not re.fullmatch(r"Q\d+", body.film):
+        raise HTTPException(400, "Unknown film.")
+    state.films.mark(body.film, body.mark, body.title[:200], body.year[:4])
     return {"ok": True}
 
 

@@ -16,9 +16,12 @@ import time
 import zipfile
 from pathlib import Path
 
+from . import sevenzip
+
 log = logging.getLogger("subdrop")
 
 SUB_EXT = {".srt", ".ass", ".ssa", ".vtt", ".sub"}
+ARCHIVE_EXT = {".zip", ".rar", ".7z"}
 TEXT_EXT = {".srt", ".ass", ".ssa", ".vtt"}
 DONE, UNMATCHED = "Done", "Not matched"
 LANG_NAMES = {"fa": "Persian", "en": "English"}
@@ -187,20 +190,47 @@ class SubDrop:
         shutil.move(str(src), str(dest))
         return dest
 
-    def _unzip(self, z: Path, inbox: Path):
-        """Subtitles often come zipped: take the subtitle files out, then put the zip in Done."""
-        try:
-            with zipfile.ZipFile(z) as zf:
-                for info in zf.infolist():
-                    name = Path(info.filename).name
-                    if Path(name).suffix.lower() in SUB_EXT and 0 < info.file_size <= MAX_BYTES:
-                        out = inbox / name
-                        if out.exists():
-                            out = inbox / f"{out.stem} ({int(time.time())}){out.suffix}"
-                        out.write_bytes(zf.read(info))
-        except (zipfile.BadZipFile, OSError) as e:
-            log.info("Couldn't open %s: %s", z.name, e)
-        self._move(z, inbox / DONE)
+    def _take_subs(self, folder: Path, inbox: Path):
+        for f in folder.rglob("*"):
+            if f.is_file() and f.suffix.lower() in SUB_EXT and 0 < f.stat().st_size <= MAX_BYTES:
+                out = inbox / f.name
+                if out.exists():
+                    out = inbox / f"{out.stem} ({int(time.time())}){out.suffix}"
+                shutil.copyfile(f, out)
+
+    def _unpack(self, a: Path, inbox: Path):
+        """Subtitles often come zipped or as .rar: take the subtitle files out, then put the archive in Done.
+        .zip is opened directly; .rar and .7z need 7-Zip, which is fetched once the first time one shows up."""
+        if a.suffix.lower() == ".zip":
+            try:
+                with zipfile.ZipFile(a) as zf:
+                    for info in zf.infolist():
+                        name = Path(info.filename).name
+                        if Path(name).suffix.lower() in SUB_EXT and 0 < info.file_size <= MAX_BYTES:
+                            out = inbox / name
+                            if out.exists():
+                                out = inbox / f"{out.stem} ({int(time.time())}){out.suffix}"
+                            out.write_bytes(zf.read(info))
+                self._move(a, inbox / DONE)
+                return
+            except (zipfile.BadZipFile, OSError) as e:
+                log.info("Couldn't open %s as a zip (%s), trying 7-Zip", a.name, e)
+        exe = sevenzip.ensure(self.data_dir)
+        if not exe:
+            self._move(a, inbox / UNMATCHED)
+            self._note({"file": a.name, "ok": False, "message": "This archive needs 7-Zip, which couldn't be set up. Unpack it yourself and drop the subtitle in."})
+            return
+        tmp = self.data_dir / "tmp-subtitle-archive"
+        shutil.rmtree(tmp, ignore_errors=True)
+        ok = sevenzip.extract(exe, a, tmp)
+        found = ok and any(f.suffix.lower() in SUB_EXT for f in tmp.rglob("*"))
+        if found:
+            self._take_subs(tmp, inbox)
+            self._move(a, inbox / DONE)
+        else:
+            self._move(a, inbox / UNMATCHED)
+            self._note({"file": a.name, "ok": False, "message": "No subtitle file found inside (or the archive is damaged or has a password)."})
+        shutil.rmtree(tmp, ignore_errors=True)
 
     def run(self) -> int:
         """One look at the inbox. Returns how many subtitles were placed."""
@@ -209,9 +239,11 @@ class SubDrop:
             return 0
         now = time.time()
         files = [p for p in inbox.iterdir() if p.is_file() and now - p.stat().st_mtime > SETTLE_SECONDS]
-        for z in [p for p in files if p.suffix.lower() == ".zip"]:
-            self._unzip(z, inbox)
-            files = [p for p in inbox.iterdir() if p.is_file()]
+        archives = [p for p in files if p.suffix.lower() in ARCHIVE_EXT]
+        for z in archives:
+            self._unpack(z, inbox)
+        if archives:
+            files = [p for p in inbox.iterdir() if p.is_file() and p.suffix.lower() not in ARCHIVE_EXT]
         subs = [p for p in files if p.suffix.lower() in SUB_EXT]
         if not subs:
             return 0
@@ -296,8 +328,8 @@ class SubDrop:
         if inbox is None:
             raise ValueError(f"The subtitle inbox folder can't be used: {self.folder()}")
         name = Path(name or "subtitle.srt").name
-        if Path(name).suffix.lower() not in SUB_EXT | {".zip"}:
-            raise ValueError("Choose subtitle files (.srt, .ass, .vtt, .sub) or a .zip of them.")
+        if Path(name).suffix.lower() not in SUB_EXT | ARCHIVE_EXT:
+            raise ValueError("Choose subtitle files (.srt, .ass, .vtt, .sub) or a .zip / .rar / .7z of them.")
         out = inbox / name
         if out.exists():
             out = inbox / f"{out.stem} ({int(time.time())}){out.suffix}"

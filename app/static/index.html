@@ -26,7 +26,9 @@
   button.danger { background:transparent; color:var(--bad); box-shadow:inset 0 0 0 1px var(--line); }
   button:disabled { opacity:.5; cursor:default; }
   button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  textarea, input[type=text] { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px; font:inherit; font-size:14px; }
+  textarea, input[type=text], input[type=search], select { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:10px; font:inherit; font-size:14px; }
+  select { padding:8px 10px; }
+  textarea, input[type=text], input[type=search] { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px; font:inherit; font-size:14px; }
   textarea { min-height:64px; resize:vertical; }
   input[type=file] { color:var(--muted); font-size:13px; max-width:100%; }
   main { padding:0 14px; }
@@ -184,7 +186,7 @@
   <button data-tab="server" class="on"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg><span>Server</span></button>
   <button data-tab="music"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg><span>Music</span><span class="badge" id="newCount" hidden></span></button>
   <button data-tab="downloads"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg><span>Downloads</span><span class="badge" id="dlCount" hidden></span></button>
-  <button data-tab="subs"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h4M13 10h4M7 14h6"/></svg><span>Subtitles</span></button>
+  <button data-tab="subs"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h4M13 10h4M7 14h6"/></svg><span>Movies</span></button>
   <button data-tab="settings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Settings</span></button>
   <div class="railstatus" id="railStatus">Server Assistant</div>
 </nav>
@@ -192,7 +194,7 @@
 
 <script>
 let showUnmatched = false;
-let tab = "server", musicFilter = "new", openAdd = null, confirmStop = null;
+let tab = "server", musicFilter = "new", musicYear = "", musicMonth = "", openAdd = null, confirmStop = null;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const api = async (p, opt) => { let r; for (let i = 0; ; i++) { try { r = await fetch(p, opt); break; } catch (e) { if (i >= 2 || (opt && opt.method && opt.method !== "GET")) throw e; await new Promise(x => setTimeout(x, 600 * (i + 1))); } } const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.detail || r.statusText); return j; };
@@ -510,7 +512,18 @@ async function renderMusic() {
   const skippedBox = musicFilter === "skipped" && skippedArtists.length
     ? `<h2>Skipped artists</h2><div class="stack"><div class="card"><div class="hint" style="margin-bottom:6px">These artists are not checked for new releases.</div>${skippedArtists.map(a =>
         `<div class="row" style="justify-content:space-between;gap:8px;padding:4px 0"><span>${esc(a)}</span><button class="small" data-a="${esc(a)}" onclick="unskipArtist(this.dataset.a)">Remove</button></div>`).join("")}</div></div><h2>Skipped releases</h2>` : "";
-  setView(my, `<div class="chips">${chips}</div>${skippedBox}<div class="stack relgrid">${rows.length ? rows.map(releaseCard).join("") : `<div class="empty">${empty}</div>`}</div>`);
+  // year / month filter, from the release dates in this list
+  const years = [...new Set(rows.map(r => (r.date || "").slice(0, 4)).filter(y => /^\d{4}$/.test(y)))].sort().reverse();
+  if (musicYear && !years.includes(musicYear)) years.unshift(musicYear);
+  const months = [...new Set(rows.filter(r => (r.date || "").startsWith(musicYear)).map(r => (r.date || "").slice(5, 7)).filter(m => /^\d{2}$/.test(m)))].sort();
+  if (musicMonth && !months.includes(musicMonth)) months.push(musicMonth);
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const shown = rows.filter(r => (!musicYear || (r.date || "").startsWith(musicYear)) && (!musicYear || !musicMonth || (r.date || "").slice(5, 7) === musicMonth));
+  const dateBar = years.length > 0 ? `<div class="row" style="gap:8px;margin:0 0 10px;align-items:center">
+      <select onchange="musicYear=this.value;musicMonth='';savePrefs();render()"><option value="">All years</option>${years.map(y => `<option ${y === musicYear ? "selected" : ""}>${y}</option>`).join("")}</select>
+      ${musicYear ? `<select onchange="musicMonth=this.value;savePrefs();render()"><option value="">All months</option>${months.map(m => `<option value="${m}" ${m === musicMonth ? "selected" : ""}>${MONTHS[+m - 1] || m}</option>`).join("")}</select>` : ""}
+      ${musicYear ? `<span class="muted">${shown.length} of ${rows.length}</span>` : ""}</div>` : "";
+  setView(my, `<div class="chips">${chips}</div>${dateBar}${skippedBox}<div class="stack relgrid">${shown.length ? shown.map(releaseCard).join("") : `<div class="empty">${rows.length ? "Nothing in this month." : empty}</div>`}</div>`);
 }
 
 /* ---------------- DOWNLOADS ---------------- */
@@ -588,7 +601,7 @@ function dropCard(d) {
       ${recent}</div></div>`;
 }
 function dropUpload() {
-  const i = document.createElement("input"); i.type = "file"; i.multiple = true; i.accept = ".srt,.ass,.ssa,.vtt,.sub,.zip";
+  const i = document.createElement("input"); i.type = "file"; i.multiple = true; i.accept = ".srt,.ass,.ssa,.vtt,.sub,.zip,.rar,.7z";
   i.onchange = async () => {
     if (!i.files.length) return;
     const f = new FormData(); for (const x of i.files) f.append("files", x);
@@ -607,9 +620,71 @@ async function dropAssign(i, file) {
 async function dropDiscard(file) {
   try { await api("/api/subdrop/discard", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({file})}); render(); } catch (e) { toast(e.message); }
 }
+/* ---------------- MOVIES: directors and series ---------------- */
+let filmDir = "", filmAllDirs = false, filmFilter = "";
+const dirCache = {};   // name -> promise of that director's films (looked up once, not on every refresh)
+function filmDirFetch(name, refresh) {
+  if (refresh || !dirCache[name]) dirCache[name] = api(`/api/films/director?name=${encodeURIComponent(name)}${refresh ? "&refresh=1" : ""}`).catch(e => ({error: e.message}));
+  return dirCache[name];
+}
+function filmRow(f, full) {
+  const y = f.year ? ` (${esc(f.year)})` : "";
+  const d = JSON.stringify({film: f.id, title: f.title, year: f.year}).replace(/"/g, "&quot;");
+  return `<div class="kv" style="padding:6px 0;gap:10px;align-items:center">
+    <span style="color:var(--text);overflow:hidden;text-overflow:ellipsis">${esc(f.title)}${y}${f.mark === "want" ? ' <span class="ok">· to get</span>' : ""}</span>
+    ${full ? `<span class="row" style="gap:6px;flex-shrink:0">
+      <button class="small primary" type="button" data-f="${d}" onclick="filmGet(this)">Download</button>
+      ${f.mark === "want" ? `<button class="small" type="button" data-f="${d}" onclick="filmMark(this, '')">Undo</button>`
+        : `<button class="small" type="button" data-f="${d}" onclick="filmMark(this, 'want')">Later</button>`}
+      <button class="small" type="button" data-f="${d}" onclick="filmMark(this, 'skip')">Skip</button></span>` : ""}</div>`;
+}
+async function filmMark(btn, mark) {
+  const f = JSON.parse(btn.dataset.f);
+  try { await api("/api/films/mark", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({...f, mark})});
+        if (filmDir) delete dirCache[filmDir]; toast(mark === "skip" ? "Hidden" : mark === "want" ? "Saved for later" : "Done"); render(); }
+  catch (e) { toast(e.message); }
+}
+function filmGet(btn) {  // no searching of torrent sites: the person brings the magnet link / .torrent
+  const f = JSON.parse(btn.dataset.f);
+  selectTab("downloads"); render();
+  toast(`Paste the magnet link or choose the .torrent for ${f.title}${f.year ? " (" + f.year + ")" : ""}, then pick "Leave in Downloads folder"`);
+}
+async function filmsBox() {
+  let d;
+  try { d = await api("/api/films/directors"); } catch (e) { return `<h2>Directors</h2><div class="card"><div class="hint">${esc(e.message)}</div></div>`; }
+  if (!d.directors.length) return "";
+  const q = filmFilter.trim().toLowerCase();
+  const list = d.directors.filter(x => !q || x.name.toLowerCase().includes(q));
+  const shown = q || filmAllDirs ? list : list.slice(0, 12);
+  let h = `<h2>Directors <span class="muted" style="font-weight:400">${d.directors.length}</span></h2><div class="card">`;
+  if (filmDir) h += `<div class="chips"><button class="chip on" onclick="filmDir='';render()">${esc(filmDir)} ✕</button></div>`;
+  else h += `<input type="search" id="dirSearch" placeholder="Find a director" value="${esc(filmFilter)}" oninput="filmFilter=this.value;render()" style="margin-bottom:8px">
+    <div class="chips" style="flex-wrap:wrap">${shown.map(x => `<button class="chip" data-n="${esc(x.name)}" onclick="filmDir=this.dataset.n;render()">${esc(x.name)} <span class="muted">${x.count}</span></button>`).join("")}</div>
+    ${!q && list.length > 12 ? `<a href="#" onclick="filmAllDirs=!filmAllDirs;render();return false">${filmAllDirs ? "Show fewer" : "Show all " + list.length}</a>` : ""}
+    ${q && !list.length ? `<div class="hint">No director by that name in your movies.</div>` : ""}`;
+  if (filmDir) {
+    const r = await filmDirFetch(filmDir);
+    if (r.error) h += `<div class="hint fail" style="margin-top:10px">${esc(r.error)}</div>`;
+    else if (!r.found) h += `<div class="hint" style="margin-top:10px">No films found for ${esc(filmDir)} on Wikidata.</div>`;
+    else {
+      const miss = r.missing.filter(f => f.mark !== "skip");
+      h += `<div style="margin-top:8px"><div class="hint">You have ${r.owned.length} of ${r.owned.length + r.missing.length} films${r.upcoming.length ? ` · ${r.upcoming.length} coming` : ""}
+          · <a href="#" onclick="filmDirFetch(filmDir, true).then(render);return false">Look again</a></div>
+        ${miss.length ? miss.map(f => filmRow(f, true)).join("") : `<div class="hint" style="margin-top:6px">You have them all.</div>`}
+        ${r.upcoming.length ? `<div class="hint" style="margin-top:8px">Coming: ${r.upcoming.map(f => esc(f.title) + (f.date ? " (" + esc(f.date) + ")" : "")).join(", ")}</div>` : ""}</div>`;
+    }
+  }
+  h += `</div>`;
+  const sp = d.series_progress;
+  h += `<h2>Series you have part of</h2><div class="card">${d.series.length ? d.series.map(x => `<details><summary style="cursor:pointer;padding:4px 0">${esc(x.name)} <span class="muted">· you have ${x.have} of ${x.total}</span></summary>${x.missing.map(f => filmRow(f, true)).join("")}</details>`).join("")
+      : `<div class="hint">${sp.running ? "Checking your movies…" : d.series_checked ? "Nothing missing from the series you own." : "Not checked yet."}</div>`}
+    <div class="hint" style="margin-top:6px">${d.series_checked ? "Checked " + esc(d.series_checked) + " · " : ""}${sp.running ? "checking…" : `<a href="#" onclick="api('/api/films/series/check',{method:'POST'}).then(()=>{toast('Checking your movies for series…');setTimeout(render,2000)});return false">Check now</a>`}</div></div>`;
+  if (d.wanted.length) h += `<h2>To get</h2><div class="card">${d.wanted.map(w => filmRow({id: w.film, title: w.title, year: w.year, mark: "want"}, true)).join("")}</div>`;
+  return h;
+}
 async function renderSubs() {
   const my = seq;
-  $("#heading").textContent = "Subtitles";
+  $("#heading").textContent = "Movies";
   $("#actionBtn").hidden = true;
   const [st, rows, gaps, drop] = await Promise.all([api("/api/status"), api("/api/subtitles"), api("/api/library/subtitle-gaps").catch(() => null), api("/api/subdrop").catch(() => null)]);
   const s = st.subtitles;
@@ -621,11 +696,16 @@ async function renderSubs() {
     : s.running ? "Searching…" : (s.last_run ? `Last check ${esc(s.last_run)} · ${s.last_count} downloaded · ` : "") + `<a href="#" onclick="event.preventDefault();api('/api/check-subtitles',{method:'POST'}).then(()=>toast('Looking for missing subtitles…'))">Check now</a>`);
   const label = {downloaded:"✓ Downloaded", not_found:"– None found yet", error:"✗ Error"};
   if (my !== seq) return;
-  if (val("dropBox") && document.activeElement && val("dropBox").contains(document.activeElement)) return;  // don't redraw while picking a movie
-  $("#view").innerHTML = `${dropBox}${gapBox}<div class="stack">${rows.length ? rows.map(r => `<div class="card log">
+  const films = await filmsBox();
+  if (my !== seq) return;
+  const ae = document.activeElement;  // don't redraw while typing or picking (the page refreshes every few seconds)
+  if (ae && $("#view").contains(ae) && ["INPUT", "SELECT", "TEXTAREA"].includes(ae.tagName) && ae.id !== "dirSearch") return;
+  const caret = ae && ae.id === "dirSearch" ? ae.selectionStart : null;
+  swap($("#view"), `${films}${dropBox}${gapBox}<h2>Subtitle activity</h2><div class="stack">${rows.length ? rows.map(r => `<div class="card log">
       <div class="${r.status === "downloaded" ? "ok" : r.status === "error" ? "fail" : ""}">${label[r.status] || esc(r.status)} · ${esc(r.language)}</div>
       <div class="path">${esc(r.video.split(/[\\/]/).pop())}</div><div class="meta">${esc(r.at.replace("T", " "))} ${esc(r.message)}</div></div>`).join("")
-    : `<div class="empty">No subtitle activity yet.</div>`}</div>`;
+    : `<div class="empty">No subtitle activity yet.</div>`}</div>`);
+  if (caret !== null && val("dirSearch")) { val("dirSearch").focus(); val("dirSearch").setSelectionRange(caret, caret); }
 }
 
 /* ---------------- SETTINGS ---------------- */
@@ -709,7 +789,7 @@ async function renderSettings() {
       <div class="field"><label class="l">Languages (codes)</label><input type="text" id="sLang" value="${esc(sb.languages.join(", "))}"><div class="hint">en = English, fa = Persian. Each movie gets one subtitle per language.</div></div>
       <div class="hint">Where to look is set under <b>Subtitle sources</b> below.</div>
       <div class="field"><label class="l">Subtitle inbox folder</label><input type="text" id="sDrop" value="${esc(sb.drop_folder || "")}" placeholder="${esc(sb.drop_default || "")}">
-        <div class="hint">Drop subtitle files here with any name (or a .zip of them). The app finds the movie, renames the file and puts it next to the movie. Leave empty to use the folder shown.</div></div>
+        <div class="hint">Drop subtitle files here with any name, or the .zip / .rar they came in. The app finds the movie, renames the file and puts it next to the movie. Leave empty to use the folder shown.</div></div>
     </div>
     <div class="card"><div class="title" style="font-size:15px;margin-bottom:8px">Plex</div>
       <div class="field"><label class="l">Plex address</label><input type="text" id="pUrl" value="${esc(px.url)}"></div>
@@ -988,8 +1068,8 @@ function selectTab(name) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 const start = location.hash.slice(1);
 /* what you had selected (music filter, carousel tab...) is remembered in this browser, also across app updates */
-function loadPrefs() { try { const p = JSON.parse(localStorage.getItem("sa.ui") || "{}"); if (p.musicFilter) musicFilter = p.musicFilter; if (p.recTab) recTab = p.recTab; if (p.histTab) histTab = p.histTab; } catch (e) {} }
-function savePrefs() { try { localStorage.setItem("sa.ui", JSON.stringify({musicFilter, recTab, histTab})); } catch (e) {} }
+function loadPrefs() { try { const p = JSON.parse(localStorage.getItem("sa.ui") || "{}"); if (p.musicFilter) musicFilter = p.musicFilter; if (p.recTab) recTab = p.recTab; if (p.histTab) histTab = p.histTab; if (p.musicYear) musicYear = p.musicYear; if (p.musicMonth) musicMonth = p.musicMonth; } catch (e) {} }
+function savePrefs() { try { localStorage.setItem("sa.ui", JSON.stringify({musicFilter, recTab, histTab, musicYear, musicMonth})); } catch (e) {} }
 loadPrefs();
 if (["server", "music", "downloads", "subs", "settings"].includes(start)) selectTab(start);
 render();

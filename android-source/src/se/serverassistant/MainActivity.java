@@ -542,6 +542,7 @@ public class MainActivity extends Activity {
                 : awayActive ? "Make sure the server PC is on and that Tailscale is connected on it too."
                 : "Make sure the server PC is on, Server Assistant is running, and your phone is on the home Wi-Fi.\n\n" + server(), 14, MUTED);
         d.setGravity(Gravity.CENTER);
+        d.setTextIsSelectable(true);
         d.setPadding(0, dp(10), 0, dp(24));
         box.addView(d);
         Button retry = button("Try again", true);
@@ -564,7 +565,11 @@ public class MainActivity extends Activity {
         lp.topMargin = dp(10);
         box.addView(change, lp);
         if (web != null) { web.destroy(); web = null; }
-        setContentView(box);
+        ScrollView scroll = new ScrollView(this);   // a long error log must not push the buttons off the screen
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(BG);
+        scroll.addView(box);
+        setContentView(scroll);
     }
 
     /** Called from the dashboard page (window.Android). */

@@ -103,7 +103,7 @@ final class Tailnet {
                 if (!progressed[0] && PROC != null) {
                     String t;
                     synchronized (tail) {
-                        t = diag + (tail.length() > 300 ? tail.substring(tail.length() - 300) : tail.toString());
+                        t = diag + (tail.length() > 700 ? tail.substring(tail.length() - 700) : tail.toString());
                     }
                     reported[0] = true;
                     listener.onError("Still connecting after 90 seconds. The helper gave no sign-in link and no connection. Its last messages:\n"
@@ -122,6 +122,7 @@ final class Tailnet {
             pb.environment().put("HOME", dir.getPath());
             pb.environment().put("TMPDIR", ctx.getCacheDir().getPath());
             pb.environment().put("SA_IFACES", ifaceSpec());
+            pb.environment().put("TS_NO_LOGS_NO_SUPPORT", "true");   // no log uploads to Tailscale: less traffic, clearer log
             pb.environment().put("SSL_CERT_DIR", "/system/etc/security/cacerts");
             final Process mine = pb.start();
             PROC = mine;
@@ -132,6 +133,7 @@ final class Tailnet {
                 try { j = new JSONObject(line); } catch (Exception e) {
                     synchronized (tail) {
                         if (line.startsWith("diag:") && diag.length() < 900) { diag.append(line.substring(5).trim()).append('\n'); continue; }
+                        if (line.contains("log.tailscale.com") || line.contains("logtail")) continue;   // log-upload noise
                         tail.append(line).append('\n');
                         if (tail.length() > 1500) tail.delete(0, tail.length() - 1500);
                     }

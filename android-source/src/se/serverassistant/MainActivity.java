@@ -390,6 +390,33 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------------ dashboard
 
+    private int watchId;
+
+    /** While the dashboard is open: if the server stops answering (Wi-Fi switched off, server gone), show the offline menu. */
+    private void startWatch() {
+        final int id = ++watchId;
+        ui.postDelayed(new Runnable() {
+            int misses;
+            public void run() {
+                if (id != watchId || web == null) return;
+                final Runnable self = this;
+                new Thread(new Runnable() {
+                    public void run() {
+                        final boolean ok = Net.isServer(base(), 5000);
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (id != watchId || web == null) return;
+                                misses = ok ? 0 : misses + 1;
+                                if (misses >= 3) { watchId++; showOffline(null); return; }
+                                ui.postDelayed(self, 8000);
+                            }
+                        });
+                    }
+                }).start();
+            }
+        }, 8000);
+    }
+
     private void showDashboard(String hash) {
         connecting = false;
         if (!awayActive && server() != null) {   // at home: remember the server's name on the private network for later
@@ -402,6 +429,7 @@ public class MainActivity extends Activity {
             }).start();
         }
         web = new WebView(this);
+        startWatch();
         web.setBackgroundColor(BG);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -498,6 +526,7 @@ public class MainActivity extends Activity {
     }
 
     private void showOffline(String reason) {
+        watchId++;
         connecting = false;
         doneLoading();
         LinearLayout box = new LinearLayout(this);

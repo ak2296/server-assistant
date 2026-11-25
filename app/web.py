@@ -1213,8 +1213,8 @@ import subprocess
 import zipfile
 
 UPDATE_KEEP_TOP = {"config.toml", "config.toml.bak", "subtitle_sources.json", "installed.flag", "server.log", "server.old.log",
-                   "unseen_ignore.json", "plex_folders.json", "torrents.json"}
-UPDATE_SKIP_TOP_DIRS = ("safety/", "qbittorrent/", "downloads/", "backups/")
+                   "unseen_ignore.json", "unseen.json", "plex_folders.json", "torrents.json", "subtitle_inbox.json"}
+UPDATE_SKIP_TOP_DIRS = ("safety/", "qbittorrent/", "downloads/", "backups/", "tools/", "Subtitle inbox/")
 UPDATE_SKIP_DIRS = (".venv/", "__pycache__/", "android-source/", "desktop-app/", "installer/")
 
 

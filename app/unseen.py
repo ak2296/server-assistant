@@ -23,9 +23,22 @@ class Unseen:
     def __init__(self, plex, data_dir: Path):
         self.plex = plex
         self.ignore_file = Path(data_dir) / "unseen_ignore.json"
+        self.result_file = Path(data_dir) / "unseen.json"   # last result, so the home page has it right after a restart
         self.items: list[dict] = []
         self.progress = {"running": False, "last_run": "", "error": "", "days": 14}
         self.stop = threading.Event()
+        try:
+            saved = json.loads(self.result_file.read_text(encoding="utf-8"))
+            self.items, self.progress["last_run"] = saved.get("items", []), saved.get("last_run", "")
+            self.items = [i for i in self.items if os.path.exists(i["path"])]   # files moved or deleted since
+        except Exception:
+            pass
+
+    def _save(self):
+        try:
+            self.result_file.write_text(json.dumps({"items": self.items, "last_run": self.progress["last_run"]}), encoding="utf-8")
+        except OSError:
+            pass
 
     def ignored(self) -> set[str]:
         try:
@@ -37,6 +50,7 @@ class Unseen:
         s = self.ignored() | {norm(folder)}
         self.ignore_file.write_text(json.dumps(sorted(s)))
         self.items = [i for i in self.items if norm(i["folder"]) != norm(folder)]
+        self._save()
 
     def _sections(self) -> list[dict]:
         out = []
@@ -108,6 +122,7 @@ class Unseen:
                 items += [c for c in cands if norm(c["path"]) not in known]
             self.items = sorted(items, key=lambda i: -i["mtime"])
             self.progress["last_run"] = time.strftime("%Y-%m-%d %H:%M")
+            self._save()
         except Exception as e:
             log.warning("Check for files Plex hasn't seen failed: %s", e)
             self.progress["error"] = str(e)[:200]

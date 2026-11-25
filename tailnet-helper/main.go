@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"tailscale.com/ipn"
+	"tailscale.com/net/dnscache"
 	"tailscale.com/net/netmon"
 	"tailscale.com/tsnet"
 )
@@ -109,6 +110,17 @@ func main() {
 	}
 
 	installInterfaceGetter()
+
+	// Tailscale's own name lookups use a resolver of their own, which also needs a server to ask when there is no
+	// /etc/resolv.conf (Android): without it the sign-in server's name never resolves.
+	if _, err := os.Stat("/etc/resolv.conf"); err != nil && runtime.GOOS != "windows" {
+		r := dnscache.Get().Forward
+		r.PreferGo = true
+		r.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 5 * time.Second}
+			return d.DialContext(ctx, network, "1.1.1.1:53")
+		}
+	}
 
 	logf := func(string, ...any) {}
 	if _, phone := os.LookupEnv("SA_IFACES"); phone { // on the phone, keep a short log so a stuck start can be explained

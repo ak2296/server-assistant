@@ -950,15 +950,24 @@ def save_settings(body: SettingsBody):
     def has(d: dict, key: str) -> bool:
         return key in d
 
+    def merge_exclude(old: list, body_part: dict) -> list:
+        """Only the folders the page actually showed can be (un)ticked. Folders it did not show (Plex was not answering,
+        or an older page) keep their earlier choice, so a page with an empty list can never wipe your selection."""
+        n = lambda x: str(x).replace("\\", "/").rstrip("/").lower()
+        unchecked = _clean_list(body_part.get("exclude"))
+        shown = {n(x) for x in _clean_list(body_part.get("shown"))}
+        kept = [x for x in old if n(x) not in shown and n(x) not in {n(u) for u in unchecked}]
+        return kept + unchecked
+
     bm = body.music
     if has(bm, "mode"):
         m["library"] = "auto" if bm.get("mode") != "custom" else music_custom
     if has(bm, "download_folders"):
         m["download_folders"] = downloads
     if has(bm, "exclude"):
-        m["exclude"] = _clean_list(bm.get("exclude"))
+        m["exclude"] = merge_exclude(m.get("exclude", []), bm)
     if has(body.movies, "exclude"):
-        sub["exclude"] = _clean_list(body.movies.get("exclude"))
+        sub["exclude"] = merge_exclude(sub.get("exclude", []), body.movies)
     if has(bm, "lookback_days"):
         m["lookback_days"] = int(bm.get("lookback_days") or 120)
     if has(bm, "release_types"):

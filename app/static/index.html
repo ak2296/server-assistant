@@ -601,6 +601,7 @@ function folderBlock(key, title, info, plexList, plexLabel) {
     </div>
     <div id="${key}Auto" ${auto ? "" : "hidden"}>
       <div class="folderlist">${plexList.length ? plexList.map(f => `<label class="check" style="margin:2px 0"><input type="checkbox" class="exc-${key}" value="${esc(f)}" ${(info.exclude || []).some(x => x.replace(/[\\/]+$/, "").toLowerCase() === f.replace(/[\\/]+$/, "").toLowerCase()) ? "" : "checked"}>${esc(f)}</label>`).join("") : `<span class="warn">Plex has no ${plexLabel} library${settings.plex_connected ? "" : " (Plex not connected)"}.</span>`}</div>
+      ${!plexList.length && (info.exclude || []).length ? `<div class="hint warn">Plex isn't answering right now, so the folder list is empty. Your choices are kept; saving will not change them.</div>` : ""}
       <div class="hint">These are the folders your Plex ${plexLabel} libraries use. <b>Untick a folder to leave it out</b> (for example audiobooks or podcasts). New folders added in Plex are picked up automatically.</div>
     </div>
     <div id="${key}Custom" ${auto ? "hidden" : ""}>
@@ -772,8 +773,8 @@ async function saveSettings(ev) {
   const mode = k => document.querySelector(`input[name=${k}Mode]:checked`).value;
   const body = {
     music: { mode: mode("music"), custom: val("musicFolders").value, download_folders: val("dlFolders").value,
-             exclude: [...document.querySelectorAll(".exc-music:not(:checked)")].map(x => x.value), lookback_days: val("lookback").value, catalog_gaps: val("catGaps").checked, sources: [...document.querySelectorAll(".msrc:checked")].map(x => x.value), release_types: [...document.querySelectorAll(".rtype:checked")].map(x => x.value) },
-    movies: { mode: mode("movies"), custom: val("moviesFolders").value, exclude: [...document.querySelectorAll(".exc-movies:not(:checked)")].map(x => x.value) },
+             exclude: [...document.querySelectorAll(".exc-music:not(:checked)")].map(x => x.value), shown: [...document.querySelectorAll(".exc-music")].map(x => x.value), lookback_days: val("lookback").value, catalog_gaps: val("catGaps").checked, sources: [...document.querySelectorAll(".msrc:checked")].map(x => x.value), release_types: [...document.querySelectorAll(".rtype:checked")].map(x => x.value) },
+    movies: { mode: mode("movies"), custom: val("moviesFolders").value, exclude: [...document.querySelectorAll(".exc-movies:not(:checked)")].map(x => x.value), shown: [...document.querySelectorAll(".exc-movies")].map(x => x.value) },
     subtitles: { enabled: val("sEnabled").checked, languages: val("sLang").value },
     qbittorrent: { engine: document.querySelector("input[name=qEngine]:checked").value, enabled: val("qEnabled").checked, url: val("qUrl").value, username: val("qUser").value, password: val("qPass").value, save_path: val("qSave").value, upload_limit_kb: val("qUp").value },
     updates: { auto: val("updAuto").checked },

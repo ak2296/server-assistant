@@ -405,10 +405,10 @@ function addBox(id, mbid = "", showType = false) {
   return `<form class="addbox" onsubmit="submitAdd(event, '${mbid}')">
     <textarea name="links" placeholder="Paste magnet link(s) or .torrent URL(s), one per line"></textarea>
     <input type="file" name="files" accept=".torrent,application/x-bittorrent" multiple>
-    ${showType ? `<div class="toggle"><label class="chip on" id="tMusic"><input type="radio" name="music" value="true" checked hidden onchange="typeSel(this)">Music: add to my library</label>
-      <label class="chip" id="tOther"><input type="radio" name="music" value="false" hidden onchange="typeSel(this)">Other: just download</label></div>
-      <div class="hint" style="margin:0 0 8px">Music is moved into your artist folders when it finishes. Other downloads stay in your Downloads folder.</div>` : `<input type="hidden" name="music" value="true">`}
-    <div class="actions" style="margin-top:0"><button class="primary small" type="submit">Download</button>
+    ${showType ? `<div class="hint" style="margin:8px 0 4px">When it finishes:</div><div class="toggle"><label class="chip on" id="tMusic"><input type="radio" name="music" value="true" checked hidden onchange="typeSel(this)">Move into my music library</label>
+      <label class="chip" id="tOther"><input type="radio" name="music" value="false" hidden onchange="typeSel(this)">Leave in Downloads folder</label></div>
+      ` : `<input type="hidden" name="music" value="true">`}
+    <div class="actions" style="margin-top:0"><button class="primary small" type="submit">Start download</button>
       ${id ? `<button class="small" type="button" onclick="openAdd=null;render()">Cancel</button>` : ""}</div>
   </form>`;
 }

@@ -76,7 +76,7 @@ final class Tailnet {
             dir.mkdirs();
             String name = "phone-" + Build.MODEL.toLowerCase().replaceAll("[^a-z0-9]+", "-");
             ProcessBuilder pb = new ProcessBuilder(helper(ctx).getPath(), "-mode", "connect", "-dir", dir.getPath(),
-                    "-hostname", name, "-remote", "serverassistant", "-listen", listen, "-exit-with-parent");
+                    "-hostname", name, "-remote", ctx.getSharedPreferences("settings", Context.MODE_PRIVATE).getString("tsname", "serverassistant"), "-listen", listen, "-exit-with-parent");
             pb.redirectErrorStream(true);
             pb.environment().put("HOME", dir.getPath());
             pb.environment().put("TMPDIR", ctx.getCacheDir().getPath());

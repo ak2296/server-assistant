@@ -374,6 +374,15 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ dashboard
 
     private void showDashboard(String hash) {
+        if (!awayActive && server() != null) {   // at home: remember the server's name on the private network for later
+            final String home = server();
+            new Thread(new Runnable() {
+                public void run() {
+                    String n = Net.tailnetName(home, 3000);
+                    if (n != null) prefs.edit().putString("tsname", n).apply();
+                }
+            }).start();
+        }
         web = new WebView(this);
         web.setBackgroundColor(BG);
         WebSettings s = web.getSettings();

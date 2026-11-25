@@ -38,6 +38,24 @@ final class Net {
         }
     }
 
+    /** The server's name on the private network (from the dashboard), or null if it can't be read. */
+    static String tailnetName(String base, int timeoutMs) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(base + "/api/tailnet").openConnection();
+            c.setConnectTimeout(timeoutMs);
+            c.setReadTimeout(timeoutMs);
+            if (c.getResponseCode() != 200) return null;
+            String body = readAll(c.getInputStream());
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"name\"\\s*:\\s*\"([A-Za-z0-9-]{1,63})\"").matcher(body);
+            return m.find() ? m.group(1) : null;
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
     /** POST multipart/form-data to /api/downloads. Returns null on success, else an error message. */
     static String postDownload(String base, String link, String fileName, byte[] file, boolean music) throws Exception {
         String boundary = "----sa" + System.currentTimeMillis();

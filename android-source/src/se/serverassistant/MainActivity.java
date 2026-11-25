@@ -111,6 +111,8 @@ public class MainActivity extends Activity {
         return awayActive ? Tailnet.LOCAL : server();
     }
 
+    private boolean connecting;
+
     private void showConnecting(String message) {
         if (web != null) { web.destroy(); web = null; }
         LinearLayout box = new LinearLayout(this);
@@ -129,7 +131,21 @@ public class MainActivity extends Activity {
             public void onClick(View v) { openLogin(); }
         });
         box.addView(connLogin, matchWrap());
+        Button cancel = button("Cancel", false);
+        cancel.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { cancelConnecting(); }
+        });
+        LinearLayout.LayoutParams clp = matchWrap();
+        clp.topMargin = dp(10);
+        box.addView(cancel, clp);
+        connecting = true;
         setContentView(box);
+    }
+
+    /** Leave the "connecting" screen and go back to the offline menu. */
+    private void cancelConnecting() {
+        if (tailnet != null) tailnet.stop();
+        showOffline(null);
     }
 
     private void openLogin() {
@@ -200,6 +216,7 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ setup screen
 
     private void showSetup(String message) {
+        connecting = false;
         if (web != null) { web.destroy(); web = null; }
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(BG);
@@ -374,6 +391,7 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ dashboard
 
     private void showDashboard(String hash) {
+        connecting = false;
         if (!awayActive && server() != null) {   // at home: remember the server's name on the private network for later
             final String home = server();
             new Thread(new Runnable() {
@@ -480,6 +498,7 @@ public class MainActivity extends Activity {
     }
 
     private void showOffline(String reason) {
+        connecting = false;
         doneLoading();
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -554,7 +573,8 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (web != null && web.canGoBack()) web.goBack();
+        if (connecting) cancelConnecting();
+        else if (web != null && web.canGoBack()) web.goBack();
         else super.onBackPressed();
     }
 

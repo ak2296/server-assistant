@@ -267,8 +267,7 @@ const thumb = (p, w = 240) => p ? `/api/plex/thumb?w=${w}&path=${encodeURICompon
 async function renderServer() {
   const my = seq;
   $("#heading").textContent = "Server";
-  const btn = $("#actionBtn"); btn.hidden = false; btn.textContent = "Scan libraries";
-  btn.onclick = async () => { try { await api("/api/plex/scan", {method:"POST"}); toast("Plex is scanning your libraries"); } catch (e) { toast(e.message); } };
+  $("#actionBtn").hidden = true;
   const [d, sum, uns, rec] = await Promise.all([api("/api/server"), api("/api/summary").catch(() => null), api("/api/library/unseen").catch(() => null), api("/api/library/recent").catch(() => null)]);
   const s = d.system, p = d.plex, a = d.app;
   const upd = !a.auto ? " · auto-update off" : a.update.error ? ` · <span class="fail">update check failed</span>` : a.update.result && a.update.result !== "up to date" ? " · " + esc(a.update.result) + "…" : "";
@@ -492,13 +491,13 @@ async function setStatus(mbid, status) {
 async function renderMusic() {
   const my = seq;
   $("#heading").textContent = "Music";
-  const btn = $("#actionBtn"); btn.hidden = false; btn.textContent = "Check now";
-  btn.onclick = async () => { await api("/api/check-releases", {method:"POST"}); toast("Checking for new releases…"); setTimeout(render, 1500); };
+  $("#actionBtn").hidden = true;
   const [st, rows, skippedArtists] = await Promise.all([api("/api/status"), api(`/api/releases?status=${musicFilter === "upcoming" ? "new&when=upcoming" : musicFilter}`), api("/api/skipped-artists")]);
   const rc = st.release_check;
   let sub = st.library_found ? `${st.artists} artists in your library` : `<span class="warn">No music folder found. Check Settings → Music folders.</span>`;
   if (rc.running) sub += ` · checking ${rc.done}/${rc.total}${rc.current ? " (" + esc(rc.current) + ")" : ""}…`;
   else if (rc.last_run) sub += ` · last check ${esc(rc.last_run)}`;
+  if (!rc.running) sub += ` · <a href="#" onclick="event.preventDefault();api('/api/check-releases',{method:'POST'}).then(()=>{toast('Checking for new releases…');setTimeout(render,1500)})">Check now</a>`;
   const un = st.unmatched_artists;  // hidden by default; one tap shows the list
   if (un.length) sub += ` · <a href="#" class="muted" onclick="showUnmatched = !showUnmatched; render(); return false">${un.length} not matched ${showUnmatched ? "▲" : "▼"}</a>`
     + (showUnmatched ? `<br><span class="muted">No match on any music source for: ${un.map(esc).join(", ")}</span>` : "");
@@ -572,15 +571,14 @@ function pickSub(key, lang) {  // attach a subtitle file whose name doesn't matc
 async function renderSubs() {
   const my = seq;
   $("#heading").textContent = "Subtitles";
-  const btn = $("#actionBtn"); btn.hidden = false; btn.textContent = "Check now";
-  btn.onclick = async () => { await api("/api/check-subtitles", {method:"POST"}); toast("Looking for missing subtitles…"); };
+  $("#actionBtn").hidden = true;
   const [st, rows, gaps] = await Promise.all([api("/api/status"), api("/api/subtitles"), api("/api/library/subtitle-gaps").catch(() => null)]);
   const s = st.subtitles;
   const gapBox = gaps && gaps.total ? `<h2>Missing in Plex <span class="muted" style="font-weight:400">${gaps.missing.length} of ${gaps.total} movies</span></h2>
     <div class="card"><div class="actions" style="margin:0 0 6px"><button class="small" onclick="api('/api/library/scan-subtitles',{method:'POST'}).then(()=>{toast('Scanning Plex…');setTimeout(render,2500)})">${gaps.progress.running ? "Scanning " + gaps.progress.done + "/" + gaps.progress.total : "Rescan"}</button></div>
       ${gaps.missing.length ? gaps.missing.slice(0, 60).map(g => `<div class="kv" style="padding:4px 0;gap:10px"><span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.title)}${g.year ? " (" + g.year + ")" : ""}</span><span style="white-space:nowrap">needs ${esc(g.missing.join(", "))}</span><button class="small" onclick="pickSub('${esc(g.key)}','${esc(g.missing[0])}')">Add file</button></div>`).join("") + (gaps.missing.length > 60 ? `<div class="hint">+${gaps.missing.length - 60} more</div>` : "") : `<div class="ok">Every movie has the languages you want.</div>`}</div><h2>Activity</h2>` : "";
   setSub(my, !s.enabled ? `<span class="warn">Subtitles are off. Turn them on in Settings.</span>`
-    : s.running ? "Searching…" : s.last_run ? `Last check ${esc(s.last_run)} · ${s.last_count} downloaded` : "");
+    : s.running ? "Searching…" : (s.last_run ? `Last check ${esc(s.last_run)} · ${s.last_count} downloaded · ` : "") + `<a href="#" onclick="event.preventDefault();api('/api/check-subtitles',{method:'POST'}).then(()=>toast('Looking for missing subtitles…'))">Check now</a>`);
   const label = {downloaded:"✓ Downloaded", not_found:"– None found yet", error:"✗ Error"};
   if (my !== seq) return;
   $("#view").innerHTML = `${gapBox}<div class="stack">${rows.length ? rows.map(r => `<div class="card log">
@@ -654,17 +652,16 @@ async function renderSettings() {
       <div class="field"><label class="l">Release types</label>${types.map(t => `<label class="check"><input type="checkbox" class="rtype" value="${t}" ${m.release_types.includes(t) ? "checked" : ""}>${t}</label>`).join("")}</div>
     </div>
     <div class="card"><div class="title" style="font-size:15px;margin-bottom:8px">Downloads</div>
-      <div class="seg"><label class="check"><input type="radio" name="qEngine" value="builtin" ${q.engine !== "qbittorrent" ? "checked" : ""}>Built in (recommended)</label>
-        <label class="check"><input type="radio" name="qEngine" value="qbittorrent" ${q.engine === "qbittorrent" ? "checked" : ""}>My own qBittorrent</label></div>
-      <div class="hint" style="margin:0 0 12px">Built in: the app downloads qBittorrent once and runs it hidden. Nothing is installed into Windows and you set nothing up. Paste a magnet link or choose a .torrent file on the Downloads tab. Finished downloads stop sharing straight away.</div>
+      <div class="hint" style="margin:0 0 12px">The app downloads qBittorrent once and runs it hidden. Nothing is installed into Windows and you set nothing up. Paste a magnet link or choose a .torrent file on the Downloads tab. Finished downloads stop sharing straight away.</div>
       <div class="field"><label class="l">Music downloads go to (empty = the app's own folder, then sorted into your library)</label><input type="text" id="qSave" value="${esc(q.save_path)}">
         <button class="small" type="button" style="margin-top:6px" onclick="openPicker('qSave', true)">Browse…</button></div>
       <div class="field"><label class="l">Upload cap while downloading (KB/s, 0 = none)</label><input type="text" id="qUp" value="${esc(q.upload_limit_kb)}" inputmode="numeric"></div>
-      <div class="hint" style="margin:10px 0 6px"><b>My own qBittorrent</b> (only used if you choose it; if it isn't running the app uses its own)</div>
+      <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">Use my own qBittorrent instead (optional)</summary>
       <label class="check"><input type="checkbox" id="qEnabled" ${q.enabled ? "checked" : ""}>Use my qBittorrent for downloads</label>
       <div class="field"><label class="l">Web UI address</label><input type="text" id="qUrl" value="${esc(q.url)}"></div>
       <div class="field"><label class="l">Username</label><input type="text" id="qUser" value="${esc(q.username)}" autocomplete="off"></div>
       <div class="field"><label class="l">Password</label><input type="text" id="qPass" value="${esc(q.password)}" autocomplete="off" style="-webkit-text-security:disc"></div>
+      </details>
     </div>
     <div class="card"><div class="title" style="font-size:15px;margin-bottom:8px">Subtitles</div>
       <label class="check"><input type="checkbox" id="sEnabled" ${sb.enabled ? "checked" : ""}>Download missing subtitles for movies</label>
@@ -710,9 +707,9 @@ async function renderSettings() {
     <div class="hint" id="verLine" style="margin:4px 0 10px">Checking version…</div>
     <label class="check"><input type="checkbox" id="updAuto" ${S.updates.auto ? "checked" : ""}>Update automatically when a new version is on GitHub</label>
     <div class="hint" id="updInfo">Press Check to see the newest version.</div>
-    <div class="actions"><button class="small" type="button" onclick="checkUpdates()">Check for updates</button>${window.Android && window.Android.checkUpdate ? `<button class="small" type="button" onclick="Android.checkUpdate()">Check the phone app for updates</button>` : ""}${window.Android ? `<button class="small" type="button" onclick="Android.changeServer()">Change server</button>` : ""}<button class="small primary" type="button" id="updInstall" hidden onclick="installUpdates()">Install now</button></div>
+    <div class="actions"><button class="small" type="button" onclick="checkUpdates()">Check for updates</button>${window.Android && window.Android.checkUpdate ? `<button class="small" type="button" onclick="Android.checkUpdate()">Check the phone app for updates</button>` : ""}<button class="small primary" type="button" id="updInstall" hidden onclick="installUpdates()">Install now</button></div>
     <div class="hint" style="margin-top:10px">Or install from a file:</div>
-    <div class="actions"><input type="file" id="updFile" accept=".zip"><button class="small primary" type="button" onclick="doUpdate()">Update now</button></div>
+    <div class="actions"><input type="file" id="updFile" accept=".zip" onchange="$('#updNow').hidden = !this.files.length"><button class="small primary" type="button" id="updNow" hidden onclick="doUpdate()">Update now</button></div>
     <div class="hint">Choose the newer ServerAssistant .zip. The program files are replaced and it restarts by itself. Your settings, history and subtitle sources are kept.</div></div>
   <div class="card" style="margin-top:10px"><div class="title" style="font-size:15px">Server program</div>
     <div class="actions"><button class="small" type="button" onclick="control('restart')">Restart</button>
@@ -776,7 +773,7 @@ async function saveSettings(ev) {
              exclude: [...document.querySelectorAll(".exc-music:not(:checked)")].map(x => x.value), shown: [...document.querySelectorAll(".exc-music")].map(x => x.value), lookback_days: val("lookback").value, catalog_gaps: val("catGaps").checked, sources: [...document.querySelectorAll(".msrc:checked")].map(x => x.value), release_types: [...document.querySelectorAll(".rtype:checked")].map(x => x.value) },
     movies: { mode: mode("movies"), custom: val("moviesFolders").value, exclude: [...document.querySelectorAll(".exc-movies:not(:checked)")].map(x => x.value), shown: [...document.querySelectorAll(".exc-movies")].map(x => x.value) },
     subtitles: { enabled: val("sEnabled").checked, languages: val("sLang").value },
-    qbittorrent: { engine: document.querySelector("input[name=qEngine]:checked").value, enabled: val("qEnabled").checked, url: val("qUrl").value, username: val("qUser").value, password: val("qPass").value, save_path: val("qSave").value, upload_limit_kb: val("qUp").value },
+    qbittorrent: { engine: val("qEnabled").checked ? "qbittorrent" : "builtin", enabled: val("qEnabled").checked, url: val("qUrl").value, username: val("qUser").value, password: val("qPass").value, save_path: val("qSave").value, upload_limit_kb: val("qUp").value },
     updates: { auto: val("updAuto").checked },
     tailnet: { enabled: val("tnOn").checked, mode: document.querySelector("input[name=tnMode]:checked").value, name: val("tnName").value, authkey: val("tnKey").value, helper_url: val("tnUrl").value },
     backup: { enabled: val("bkOn").checked, folder: val("bkFolder").value, keep: val("bkKeep").value, every_days: 7 },

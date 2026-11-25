@@ -48,6 +48,11 @@ func installInterfaceGetter() {
 	if !ok {
 		return
 	}
+	// On Android, Tailscale only knows which interface carries the default route when the app tells it (the
+	// official app does the same through libtailscale); without it no interface is "the" default one.
+	if name := os.Getenv("SA_DEFAULT_IF"); name != "" {
+		setDefaultRoute(name)
+	}
 	netmon.RegisterInterfaceGetter(func() ([]netmon.Interface, error) {
 		var out []netmon.Interface
 		for _, part := range strings.Split(spec, ";") {
@@ -140,7 +145,7 @@ func main() {
 	}
 
 	// On Android there is no /etc/resolv.conf: give Go's resolver a public DNS server to fall back on.
-	if _, err := os.Stat("/etc/resolv.conf"); err != nil && runtime.GOOS != "windows" {
+	if _, err := os.Stat("/etc/resolv.conf"); err != nil && runtime.GOOS == "linux" {
 		net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			d := net.Dialer{Timeout: 5 * time.Second}
 			return d.DialContext(ctx, "udp", "1.1.1.1:53")
@@ -151,7 +156,7 @@ func main() {
 
 	// Tailscale's own name lookups use a resolver of their own, which also needs a server to ask when there is no
 	// /etc/resolv.conf (Android): without it the sign-in server's name never resolves.
-	if _, err := os.Stat("/etc/resolv.conf"); err != nil && runtime.GOOS != "windows" {
+	if _, err := os.Stat("/etc/resolv.conf"); err != nil && runtime.GOOS == "linux" {
 		r := dnscache.Get().Forward
 		r.PreferGo = true
 		r.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {

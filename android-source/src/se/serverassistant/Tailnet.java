@@ -68,6 +68,19 @@ final class Tailnet {
      *  Only the network Android actually uses for apps is reported as up, and its IPv6 addresses only if that network
      *  has an IPv6 default route: phones carry extra interfaces (for example for calls) with addresses apps can't use,
      *  and Tailscale would otherwise try to reach its sign-in server over IPv6 and fail ("network is unreachable"). */
+    /** Name of the interface Android uses for apps' internet right now (for example wlan0 or rmnet_data0), or "". */
+    private static String activeIface(Context ctx) {
+        try {
+            if (Build.VERSION.SDK_INT >= 23) {
+                android.net.ConnectivityManager cm = (android.net.ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+                android.net.Network n = cm.getActiveNetwork();
+                android.net.LinkProperties lp = n == null ? null : cm.getLinkProperties(n);
+                if (lp != null && lp.getInterfaceName() != null) return lp.getInterfaceName();
+            }
+        } catch (Exception ignored) { }
+        return "";
+    }
+
     private static String ifaceSpec(Context ctx) {
         String active = null;
         boolean v6Route = false;
@@ -146,6 +159,7 @@ final class Tailnet {
             pb.environment().put("HOME", dir.getPath());
             pb.environment().put("TMPDIR", ctx.getCacheDir().getPath());
             pb.environment().put("SA_IFACES", ifaceSpec(ctx));
+            pb.environment().put("SA_DEFAULT_IF", activeIface(ctx));   // Tailscale on Android learns this only from the app
             pb.environment().put("TS_NO_LOGS_NO_SUPPORT", "true");   // no log uploads to Tailscale: less traffic, clearer log
             // mobile networks often meddle with plain port 80, where Tailscale first tries to reach its sign-in server
             pb.environment().put("TS_FORCE_NOISE_443", "true");

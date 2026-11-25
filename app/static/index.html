@@ -422,7 +422,7 @@ async function submitAdd(ev, mbid) {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 45000);  // never stay stuck: give up after 45 s
   try { await api("/api/downloads", {method:"POST", body:fd, signal:ctl.signal}); toast("Download started"); openAdd = null; ev.target.reset(); render(); }
   catch (e) { toast(e.name === "AbortError" ? "The server didn't answer in time. Check the Downloads list before trying again." : e.message); b.disabled = false; b.textContent = label; }
-  finally { clearTimeout(timer); }
+  finally { clearTimeout(timer); b.disabled = false; b.textContent = label; }
 }
 function releaseCard(r) {
   const cover = r.cover || `https://coverartarchive.org/release-group/${r.mbid}/front-250`;

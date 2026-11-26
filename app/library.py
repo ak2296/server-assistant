@@ -1,4 +1,5 @@
 """Read the music library: artist folders and the albums already owned."""
+import difflib
 import re
 import unicodedata
 from pathlib import Path
@@ -111,4 +112,9 @@ def is_owned(title: str, owned: set[str]) -> bool:
         short, long_ = sorted((t, o), key=len)
         if len(short) >= 6 and long_.startswith(short) and len(short) / len(long_) >= 0.45:
             return True
+        # a misspelled folder name ("Rust in Peice"): nearly the same letters, and never just a different number (Vol. 1 / Vol. 2)
+        if len(short) >= 6 and re.findall(r"\d+", t) == re.findall(r"\d+", o) and len(long_) - len(short) <= 3:
+            sm = difflib.SequenceMatcher(None, t, o)
+            if sm.quick_ratio() >= 0.9 and sm.ratio() >= 0.9:
+                return True
     return False

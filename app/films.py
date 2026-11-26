@@ -6,6 +6,7 @@ only when you open that director (and remembered for a week), and series are che
 """
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import re
@@ -48,6 +49,17 @@ def norm(s: str) -> str:
     s = s.replace("&", " and ")
     s = re.sub(r"^(the|a|an)\s+", "", re.sub(r"[^a-z0-9]+", " ", s).strip())
     return s.strip()
+
+
+def similar(a: str, b: str, both_years: bool, years_differ: bool) -> bool:
+    """Nearly the same title: a misspelling or another spelling, never just a different number (Heat / Heat 2)."""
+    if years_differ or not a or not b or re.findall(r"\d+", a) != re.findall(r"\d+", b):
+        return False
+    if abs(len(a) - len(b)) > max(3, len(a) // 4):
+        return False
+    need = 0.8 if both_years else 0.9
+    sm = difflib.SequenceMatcher(None, a, b)
+    return min(len(a), len(b)) >= 4 and sm.quick_ratio() >= need and sm.ratio() >= need
 
 
 def _q(sparql: str) -> list[dict]:
@@ -103,7 +115,8 @@ class Films:
                     mm = re.search(r"(tt\d{5,})", m.get("guid", ""))
                     imdb = mm.group(1) if mm else ""
                 dirs = [x.get("tag") for x in m.get("Director", []) or [] if x.get("tag")]
-                movies.append({"title": m.get("title", ""), "year": str(m.get("year") or ""), "imdb": imdb, "directors": dirs})
+                movies.append({"title": m.get("title", ""), "original": m.get("originalTitle", "") or "",
+                               "year": str(m.get("year") or ""), "imdb": imdb, "directors": dirs})
                 for n in dirs:
                     counts[n] = counts.get(n, 0) + 1
         directors = sorted(({"name": n, "count": c} for n, c in counts.items()), key=lambda x: (-x["count"], x["name"].lower()))
@@ -112,19 +125,33 @@ class Films:
             return self._lib
 
     def _owned(self, lib: dict):
+        """A test "do you have this film?" that copes with spelling and language differences: the IMDb id when both
+        sides have one, otherwise the title (Plex's title or original title against Wikidata's English or original
+        title), exactly or nearly the same (Madame Bovary / Madam Bovarie) when the years agree."""
         imdbs = {m["imdb"] for m in lib["movies"] if m["imdb"]}
-        years: dict[str, list[int]] = {}
+        mine = []
         for m in lib["movies"]:
-            years.setdefault(norm(m["title"]), []).append(int(m["year"]) if m["year"].isdigit() else 0)
+            y = int(m["year"]) if m["year"].isdigit() else 0
+            for t in {norm(m["title"]), norm(m.get("original", ""))} - {""}:
+                mine.append((t, y))
+        exact: dict[str, list[int]] = {}
+        first: dict[str, list] = {}   # by first letter, so the near-match test only compares likely candidates
+        for t, y in mine:
+            exact.setdefault(t, []).append(y)
+            first.setdefault(t[0], []).append((t, y))
 
         def has(f: dict) -> bool:
             if f.get("imdb") and f["imdb"] in imdbs:
                 return True
-            ys = years.get(norm(f.get("title", "")))
-            if ys is None:
-                return False
             y = int(f["year"]) if str(f.get("year", "")).isdigit() else 0
-            return not y or any(not oy or abs(oy - y) <= 1 for oy in ys)
+            for t in {norm(f.get("title", "")), norm(f.get("original", ""))} - {""}:
+                ys = exact.get(t)
+                if ys is not None and (not y or any(not oy or abs(oy - y) <= 1 for oy in ys)):
+                    return True
+                for ot, oy in first.get(t[0], []):
+                    if similar(t, ot, both_years=bool(y and oy and abs(oy - y) <= 1), years_differ=bool(y and oy and abs(oy - y) > 1)):
+                        return True
+            return False
         return has
 
     # ---------------------------------------------------------------- cache
@@ -153,21 +180,24 @@ class Films:
     # ---------------------------------------------------------------- a director's films
     def _filmography(self, name: str) -> list[dict]:
         """All films directed by people with this name, grouped by person, from Wikidata."""
-        rows = _q(f'''SELECT ?person ?film ?filmLabel ?date ?imdb WHERE {{
+        rows = _q(f'''SELECT ?person ?film ?filmLabel ?date ?imdb ?orig WHERE {{
   ?person rdfs:label "{_esc(name)}"@en .
   ?film wdt:P57 ?person ; wdt:P31 ?type .
   VALUES ?type {{ {FILM_TYPES} }}
   OPTIONAL {{ ?film wdt:P577 ?date }}
   OPTIONAL {{ ?film wdt:P345 ?imdb }}
+  OPTIONAL {{ ?film wdt:P1476 ?orig }}
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en,mul". }}
-}} LIMIT 600''')
+}} LIMIT 900''')
         films: dict[str, dict] = {}
         for r in rows:
             q = _qid(r.get("film", ""))
             if not q:
                 continue
             f = films.setdefault(q, {"id": q, "person": _qid(r.get("person", "")), "title": r.get("filmLabel", ""),
-                                     "year": "", "date": "", "imdb": ""})
+                                     "year": "", "date": "", "imdb": "", "original": ""})
+            if r.get("orig") and not f["original"]:
+                f["original"] = r["orig"]
             d = r.get("date", "")[:10]
             if d and (not f["date"] or d < f["date"]):   # earliest release date
                 f["date"], f["year"] = d, d[:4]
@@ -233,18 +263,21 @@ class Films:
             for i in range(0, len(ids), 60):        # all films of those series
                 vals = " ".join(f"wd:{x}" for x in ids[i:i + 60])
                 parts: dict[str, dict] = {}
-                for r in _q(f'''SELECT ?series ?film ?filmLabel ?date ?imdb ?ord WHERE {{
+                for r in _q(f'''SELECT ?series ?film ?filmLabel ?date ?imdb ?ord ?orig WHERE {{
   VALUES ?series {{ {vals} }}
   ?film p:P179 ?st . ?st ps:P179 ?series .
   ?film wdt:P31 ?type . VALUES ?type {{ {FILM_TYPES} }}
   OPTIONAL {{ ?st pq:P1545 ?ord }}
+  OPTIONAL {{ ?film wdt:P1476 ?orig }}
   OPTIONAL {{ ?film wdt:P577 ?date }}
   OPTIONAL {{ ?film wdt:P345 ?imdb }}
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en,mul". }}
 }}'''):
                     s, q = _qid(r["series"]), _qid(r["film"])
                     f = parts.setdefault(s, {}).setdefault(q, {"id": q, "title": r.get("filmLabel", ""), "date": "", "year": "",
-                                                               "imdb": "", "order": r.get("ord", "")})
+                                                               "imdb": "", "order": r.get("ord", ""), "original": ""})
+                    if r.get("orig") and not f["original"]:
+                        f["original"] = r["orig"]
                     d = r.get("date", "")[:10]
                     if d and (not f["date"] or d < f["date"]):
                         f["date"], f["year"] = d, d[:4]

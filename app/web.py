@@ -850,6 +850,7 @@ def sorted_log(limit: int = 50):
 
 @app.get("/api/subtitles")
 def subtitle_log(limit: int = 80):
+    limit = max(1, min(limit, 2000))
     return state.db.query("SELECT * FROM subtitle_log ORDER BY at DESC LIMIT ?", (limit,))
 
 

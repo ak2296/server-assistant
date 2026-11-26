@@ -138,7 +138,7 @@ def _candidates(db: DB, cfg: dict, folder: str, owned: set[str] | None = None) -
         if name not in sources:
             continue
         try:
-            for r in musicsources.SOURCES[name](folder, known):
+            for r in musicsources.SOURCES[name](folder, known, strict=bool(pin)):
                 found.append({**r, "src": name})
         except Exception as e:
             log.warning("%s failed for %s: %s", name, folder, e)
@@ -157,7 +157,15 @@ def check_artist(db: DB, cfg: dict, folder: str) -> int:
     is_seen = lambda t: any(library.same_title(t, x) for x in seen)
     added = 0
 
-    for g in _candidates(db, cfg, folder, owned):
+    cands = _candidates(db, cfg, folder, owned)
+    # releases you said belong to a same-name stranger: never offered again, unless your chosen artist has them on MusicBrainz
+    blocked = [r["title"] for r in db.query("SELECT title FROM release_blocks WHERE artist=?", (folder,))]
+    if blocked:
+        mb = [g["title"] for g in cands if g.get("src") == "musicbrainz"]
+        cands = [g for g in cands if g.get("src") == "musicbrainz"
+                 or not any(library.same_title(g["title"], b) for b in blocked)
+                 or any(library.same_title(g["title"], m) for m in mb)]
+    for g in cands:
         d = g["date"]
         if len(d) < 4:
             continue

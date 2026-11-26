@@ -43,9 +43,11 @@ def _secondary(title: str) -> list[str]:
 
 
 # ---------------------------------------------------------------- Deezer
-def _pick_by_overlap(cands: list, albums_of, known: set[str] | None, fans=lambda c: 0):
-    """Several artists share this name: choose the one whose albums match what you own. None = cannot tell."""
-    if len(cands) == 1:
+def _pick_by_overlap(cands: list, albums_of, known: set[str] | None, fans=lambda c: 0, strict: bool = False):
+    """Several artists share this name: choose the one whose albums match what you own. None = cannot tell.
+    strict (you told the app which artist it is): even a single match must share albums with that artist,
+    so a same-name stranger on this site can't bring its releases back."""
+    if len(cands) == 1 and not strict:
         return cands[0]
     best = None
     for c in cands[:4]:
@@ -60,7 +62,7 @@ def _pick_by_overlap(cands: list, albums_of, known: set[str] | None, fans=lambda
     return best[1] if best and best[0][0] > 0 else None
 
 
-def deezer(name: str, known: set[str] | None = None) -> list[dict]:
+def deezer(name: str, known: set[str] | None = None, strict: bool = False) -> list[dict]:
     target = library.normalize(name)
     data = _get("https://api.deezer.com/search/artist", {"q": name, "limit": 10})
     cands = [a for a in data.get("data", []) if library.normalize(a.get("name", "")) == target]
@@ -71,7 +73,7 @@ def deezer(name: str, known: set[str] | None = None) -> list[dict]:
             cache[a["id"]] = _get(f"https://api.deezer.com/artist/{a['id']}/albums", {"limit": 100}).get("data", [])
         return [al["title"] for al in cache[a["id"]]]
 
-    best = _pick_by_overlap(cands, albums_of, known, lambda a: a.get("nb_fan", 0))
+    best = _pick_by_overlap(cands, albums_of, known, lambda a: a.get("nb_fan", 0), strict)
     if not best:
         return []
     out = []
@@ -90,7 +92,7 @@ def deezer(name: str, known: set[str] | None = None) -> list[dict]:
 _SUFFIX = re.compile(r"\s+-\s+(Single|EP)\s*$", re.I)
 
 
-def itunes(name: str, known: set[str] | None = None) -> list[dict]:
+def itunes(name: str, known: set[str] | None = None, strict: bool = False) -> list[dict]:
     target = library.normalize(name)
     data = _get("https://itunes.apple.com/search", {"term": name, "entity": "musicArtist", "limit": 10})
     cands = [a for a in data.get("results", []) if library.normalize(a.get("artistName", "")) == target]
@@ -104,7 +106,7 @@ def itunes(name: str, known: set[str] | None = None) -> list[dict]:
     def titles(a):
         return [_SUFFIX.sub("", r.get("collectionName", "")).strip() for r in lookup(a) if r.get("wrapperType") == "collection"]
 
-    best = _pick_by_overlap(cands, titles, known)
+    best = _pick_by_overlap(cands, titles, known, strict=strict)
     if not best:
         return []
     out = []

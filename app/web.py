@@ -541,7 +541,11 @@ def artist_pin(body: PinBody):
     """Remember which MusicBrainz artist a folder is. Their old (wrong) listings are cleared and the list is rebuilt."""
     state.db.execute("INSERT OR REPLACE INTO artist_pins (folder, mbid, at) VALUES (?,?,datetime('now'))", (body.folder, body.mbid))
     state.db.execute("INSERT OR REPLACE INTO artists (folder, mbid, mb_name, last_check) VALUES (?,?,?,NULL)", (body.folder, body.mbid, ""))
-    # listings you had not acted on are rebuilt from the right artist; what you chose to download, skipped or already own stays
+    # listings you had not acted on are rebuilt from the right artist; what you chose to download, skipped or already own stays.
+    # The ones that came from Deezer/iTunes are remembered as "not this artist", so they can't come back after a later check
+    # (unless the artist you picked has them on MusicBrainz too).
+    for r in state.db.query("SELECT title FROM releases WHERE artist=? AND status IN ('new','gap') AND COALESCE(src,'') <> 'musicbrainz'", (body.folder,)):
+        state.db.execute("INSERT OR IGNORE INTO release_blocks (artist, title) VALUES (?,?)", (body.folder, r["title"]))
     state.db.execute("DELETE FROM releases WHERE artist=? AND status IN ('new','gap')", (body.folder,))
     state.kick_releases.set()
     return {"ok": True}

@@ -51,6 +51,38 @@ def norm(s: str) -> str:
     return s.strip()
 
 
+def names_from_path(path: str) -> list[tuple[str, str]]:
+    """Titles (and year) your own folder and file names give a movie, for example
+    "1980 - Le cheval dOrgueil (The Horse of Pride)" -> [("Le cheval dOrgueil", "1980"), ("The Horse of Pride", "1980")].
+    Plex may know a movie under another title, or not have matched it at all."""
+    out = []
+    p = path.replace("\\", "/")
+    parts = [x for x in p.split("/") if x]
+    stems = [re.sub(r"\.[A-Za-z0-9]{2,4}$", "", parts[-1])] if parts else []
+    if len(parts) > 1:
+        stems.append(parts[-2])
+    for stem in stems:
+        year = ""
+        m = re.match(r"^\s*((?:19|20)\d\d)\s*[-–]\s*(.+)$", stem)
+        if m:
+            year, stem = m.group(1), m.group(2)
+        m = re.search(r"[\[(]((?:19|20)\d\d)[\])]", stem)
+        if m:
+            year = year or m.group(1)
+            stem = stem[:m.start()] + stem[m.end():]
+        stem = re.split(r"\b(?:2160p|1080p|720p|480p|bluray|web-?dl|webrip|dvdrip|x264|x265|hevc)\b", stem, flags=re.I)[0]
+        inner = re.findall(r"\(([^()]+)\)", stem)
+        main = re.sub(r"\([^()]*\)|\[[^\]]*\]", " ", stem).replace(".", " ").replace("_", " ").strip(" -")
+        m = re.match(r"^(.*?)\s+((?:19|20)\d\d)$", main)    # "Madame Bovarie 1991" (dots in file names)
+        if m and m.group(1).strip():
+            main, year = m.group(1).strip(), year or m.group(2)
+        for t in [main] + inner:
+            t = t.strip(" -")
+            if t and not re.fullmatch(r"\d{4}", t) and (t, year) not in out:
+                out.append((t, year))
+    return out
+
+
 def similar(a: str, b: str, both_years: bool, years_differ: bool) -> bool:
     """Nearly the same title: a misspelling or another spelling, never just a different number (Heat / Heat 2)."""
     if years_differ or not a or not b or re.findall(r"\d+", a) != re.findall(r"\d+", b):
@@ -115,8 +147,10 @@ class Films:
                     mm = re.search(r"(tt\d{5,})", m.get("guid", ""))
                     imdb = mm.group(1) if mm else ""
                 dirs = [x.get("tag") for x in m.get("Director", []) or [] if x.get("tag")]
+                files = [pt.get("file", "") for md in m.get("Media", []) or [] for pt in md.get("Part", []) or [] if pt.get("file")]
                 movies.append({"title": m.get("title", ""), "original": m.get("originalTitle", "") or "",
-                               "year": str(m.get("year") or ""), "imdb": imdb, "directors": dirs})
+                               "year": str(m.get("year") or ""), "imdb": imdb, "directors": dirs,
+                               "alts": names_from_path(files[0]) if files else []})
                 for n in dirs:
                     counts[n] = counts.get(n, 0) + 1
         directors = sorted(({"name": n, "count": c} for n, c in counts.items()), key=lambda x: (-x["count"], x["name"].lower()))
@@ -134,6 +168,10 @@ class Films:
             y = int(m["year"]) if m["year"].isdigit() else 0
             for t in {norm(m["title"]), norm(m.get("original", ""))} - {""}:
                 mine.append((t, y))
+            for t, fy in m.get("alts", []):     # the names in your own folders and files
+                t = norm(t)
+                if t:
+                    mine.append((t, int(fy) if fy.isdigit() else y))
         exact: dict[str, list[int]] = {}
         first: dict[str, list] = {}   # by first letter, so the near-match test only compares likely candidates
         for t, y in mine:

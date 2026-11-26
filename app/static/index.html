@@ -607,7 +607,7 @@ async function dropDiscard(file) {
   try { await api("/api/subdrop/discard", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({file})}); render(); } catch (e) { toast(e.message); }
 }
 /* ---------------- MOVIES: directors and series ---------------- */
-let filmDir = "", filmAllDirs = false, filmFilter = "";
+let filmDir = "", filmAllDirs = false, filmFilter = "", movieTab = "movies";
 const dirCache = {};   // name -> promise of that director's films (looked up once, not on every refresh)
 function filmDirFetch(name, refresh) {
   if (refresh || !dirCache[name]) dirCache[name] = api(`/api/films/director?name=${encodeURIComponent(name)}${refresh ? "&refresh=1" : ""}`).catch(e => ({error: e.message}));
@@ -678,16 +678,17 @@ async function renderSubs() {
   const gapBox = gaps && gaps.total ? `<h2>Missing in Plex <span class="muted" style="font-weight:400">${gaps.missing.length} of ${gaps.total} movies</span></h2>
     <div class="card"><div class="actions" style="margin:0 0 6px"><button class="small" onclick="api('/api/library/scan-subtitles',{method:'POST'}).then(()=>{toast('Scanning Plex…');setTimeout(render,2500)})">${gaps.progress.running ? "Scanning " + gaps.progress.done + "/" + gaps.progress.total : "Rescan"}</button></div>
       ${gaps.missing.length ? gaps.missing.slice(0, 60).map(g => `<div class="kv" style="padding:4px 0;gap:10px"><span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.title)}${g.year ? " (" + g.year + ")" : ""}</span><span style="white-space:nowrap">needs ${esc(g.missing.join(", "))}</span><button class="small" onclick="pickSub('${esc(g.key)}','${esc(g.missing[0])}')">Add file</button></div>`).join("") + (gaps.missing.length > 60 ? `<div class="hint">+${gaps.missing.length - 60} more</div>` : "") : `<div class="ok">Every movie has the languages you want.</div>`}</div><h2>Activity</h2>` : "";
-  setSub(my, !s.enabled ? `<span class="warn">Subtitles are off. Turn them on in Settings.</span>`
+  setSub(my, movieTab === "movies" ? "Films by your directors and missing parts of series." : !s.enabled ? `<span class="warn">Subtitles are off. Turn them on in Settings.</span>`
     : s.running ? "Searching…" : (s.last_run ? `Last check ${esc(s.last_run)} · ${s.last_count} downloaded · ` : "") + `<a href="#" onclick="event.preventDefault();api('/api/check-subtitles',{method:'POST'}).then(()=>toast('Looking for missing subtitles…'))">Check now</a>`);
   const label = {downloaded:"✓ Downloaded", not_found:"– None found yet", error:"✗ Error"};
   if (my !== seq) return;
-  const films = await filmsBox();
+  const films = movieTab === "movies" ? await filmsBox() : "";
   if (my !== seq) return;
+  const tabs = `<div class="chips">${[["movies", "Movies"], ["subs", "Subtitles"]].map(([k, l]) => `<button class="chip ${movieTab === k ? "on" : ""}" onclick="movieTab='${k}';savePrefs();render()">${l}${k === "subs" && drop && drop.waiting.length ? " " + drop.waiting.length : ""}</button>`).join("")}</div>`;
   const ae = document.activeElement;  // don't redraw while typing or picking (the page refreshes every few seconds)
   if (ae && $("#view").contains(ae) && ["INPUT", "SELECT", "TEXTAREA"].includes(ae.tagName) && ae.id !== "dirSearch") return;
   const caret = ae && ae.id === "dirSearch" ? ae.selectionStart : null;
-  swap($("#view"), `${films}${dropBox}${gapBox}<h2>Subtitle activity</h2><div class="stack">${rows.length ? rows.map(r => `<div class="card log">
+  swap($("#view"), movieTab === "movies" ? tabs + (films || `<div class="empty">No movies found in Plex yet.</div>`) : `${tabs}${dropBox}${gapBox}<h2>Subtitle activity</h2><div class="stack">${rows.length ? rows.map(r => `<div class="card log">
       <div class="${r.status === "downloaded" ? "ok" : r.status === "error" ? "fail" : ""}">${label[r.status] || esc(r.status)} · ${esc(r.language)}</div>
       <div class="path">${esc(r.video.split(/[\\/]/).pop())}</div><div class="meta">${esc(r.at.replace("T", " "))} ${esc(r.message)}</div></div>`).join("")
     : `<div class="empty">No subtitle activity yet.</div>`}</div>`);
@@ -1054,8 +1055,8 @@ function selectTab(name) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 const start = location.hash.slice(1);
 /* what you had selected (music filter, carousel tab...) is remembered in this browser, also across app updates */
-function loadPrefs() { try { const p = JSON.parse(localStorage.getItem("sa.ui") || "{}"); if (p.musicFilter) musicFilter = p.musicFilter; if (p.recTab) recTab = p.recTab; if (p.histTab) histTab = p.histTab; if (p.musicYear) musicYear = p.musicYear; if (p.musicMonth) musicMonth = p.musicMonth; } catch (e) {} }
-function savePrefs() { try { localStorage.setItem("sa.ui", JSON.stringify({musicFilter, recTab, histTab, musicYear, musicMonth})); } catch (e) {} }
+function loadPrefs() { try { const p = JSON.parse(localStorage.getItem("sa.ui") || "{}"); if (p.musicFilter) musicFilter = p.musicFilter; if (p.recTab) recTab = p.recTab; if (p.histTab) histTab = p.histTab; if (p.musicYear) musicYear = p.musicYear; if (p.movieTab) movieTab = p.movieTab; if (p.musicMonth) musicMonth = p.musicMonth; } catch (e) {} }
+function savePrefs() { try { localStorage.setItem("sa.ui", JSON.stringify({musicFilter, recTab, histTab, musicYear, musicMonth, movieTab})); } catch (e) {} }
 loadPrefs();
 if (["server", "music", "downloads", "subs", "settings"].includes(start)) selectTab(start);
 render();

@@ -512,8 +512,8 @@ async function renderMusic() {
   const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const shown = rows.filter(r => (!musicYear || (r.date || "").startsWith(musicYear)) && (!musicYear || !musicMonth || (r.date || "").slice(5, 7) === musicMonth));
   const dateBar = years.length > 0 ? `<div class="row" style="gap:8px;margin:0 0 10px;align-items:center">
-      <select onchange="musicYear=this.value;musicMonth='';savePrefs();render()"><option value="">All years</option>${years.map(y => `<option ${y === musicYear ? "selected" : ""}>${y}</option>`).join("")}</select>
-      ${musicYear ? `<select onchange="musicMonth=this.value;savePrefs();render()"><option value="">All months</option>${months.map(m => `<option value="${m}" ${m === musicMonth ? "selected" : ""}>${MONTHS[+m - 1] || m}</option>`).join("")}</select>` : ""}
+      <select onchange="this.blur();musicYear=this.value;musicMonth='';savePrefs();render()"><option value="">All years</option>${years.map(y => `<option ${y === musicYear ? "selected" : ""}>${y}</option>`).join("")}</select>
+      ${musicYear ? `<select onchange="this.blur();musicMonth=this.value;savePrefs();render()"><option value="">All months</option>${months.map(m => `<option value="${m}" ${m === musicMonth ? "selected" : ""}>${MONTHS[+m - 1] || m}</option>`).join("")}</select>` : ""}
       ${musicYear ? `<span class="muted">${shown.length} of ${rows.length}</span>` : ""}</div>` : "";
   setView(my, `<div class="chips">${chips}</div>${musicFilter === "skipped" ? "" : kindBar}${dateBar}${skippedBox}<div class="stack relgrid">${shown.length ? shown.map(releaseCard).join("") : `<div class="empty">${rows.length ? "Nothing in this month." : empty}</div>`}</div>`);
 }
@@ -668,7 +668,7 @@ async function filmsBox() {
   const countryList = Object.keys(cc).sort((a, b) => cc[b] - cc[a] || a.localeCompare(b));
   if (filmCountry && !cc[filmCountry]) filmCountry = "";
   const list = d.directors.filter(x => (!q || x.name.toLowerCase().includes(q)) && (!filmCountry || (x.countries || []).includes(filmCountry)));
-  const countrySel = countryList.length ? `<select onchange="filmCountry=this.value;filmDir='';filmAllDirs=false;savePrefs();render()" style="margin-bottom:8px;width:100%"><option value="">All countries</option>${countryList.map(c => `<option value="${esc(c)}" ${c === filmCountry ? "selected" : ""}>${esc(c)} (${cc[c]})</option>`).join("")}</select>`
+  const countrySel = countryList.length ? `<select onchange="this.blur();filmCountry=this.value;filmDir='';filmAllDirs=false;savePrefs();render()" style="margin-bottom:8px;width:100%"><option value="">All countries</option>${countryList.map(c => `<option value="${esc(c)}" ${c === filmCountry ? "selected" : ""}>${esc(c)} (${cc[c]})</option>`).join("")}</select>`
     : d.countries_busy ? `<div class="hint" style="margin-bottom:8px">Finding where your directors are from…</div>` : "";
   const shown = q || filmAllDirs ? list : list.slice(0, 12);   // the suggested list: your 12 most-watched directors (of that country)
   const toggle = !q && list.length > 12 ? `<a href="#" onclick="filmAllDirs=!filmAllDirs;render();return false">${filmAllDirs ? "Show only the top 12" : "Show all " + list.length}</a>` : "";

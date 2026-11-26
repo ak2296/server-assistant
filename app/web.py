@@ -726,7 +726,11 @@ def films_directors():
     for x in s.get("series", []):
         x["missing"] = [dict(f, mark=marks.get(f["id"], "")) for f in x["missing"] if marks.get(f["id"]) != "skip"]
     s["series"] = [x for x in s.get("series", []) if x["missing"]]
-    return {"directors": lib["directors"], "movies": len(lib["movies"]), "wanted": state.films.wanted(),
+    countries = state.films.countries()
+    if any(d["name"] not in countries for d in lib["directors"]) and not state.films.country_progress["running"]:
+        threading.Thread(target=state.films.fill_countries, daemon=True).start()
+    return {"directors": [dict(d, countries=countries.get(d["name"], [])) for d in lib["directors"]],
+            "countries_busy": state.films.country_progress["running"], "movies": len(lib["movies"]), "wanted": state.films.wanted(),
             "series": s.get("series", []), "series_checked": s.get("checked", ""), "series_progress": state.films.series_progress}
 
 

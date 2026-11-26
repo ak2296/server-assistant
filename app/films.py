@@ -126,6 +126,7 @@ class Films:
         self._lib = {"at": 0.0, "movies": [], "directors": []}
         self._lock = threading.Lock()
         self.series_progress = {"running": False, "last_run": "", "error": ""}
+        self.country_progress = {"running": False, "error": "", "tried": 0.0}
 
     # ---------------------------------------------------------------- your library (from Plex)
     def library(self, force: bool = False) -> dict:
@@ -270,6 +271,43 @@ class Films:
             else:
                 missing.append(item)
         return {"name": name, "found": bool(films), "owned": owned, "missing": missing, "upcoming": upcoming}
+
+    # ---------------------------------------------------------------- directors' countries
+    def countries(self) -> dict:
+        """name -> list of countries (citizenship on Wikidata), as far as looked up so far."""
+        return self._cache_get("countries", 10 * 365 * 86400) or {}
+
+    def fill_countries(self):
+        """Background: look up the countries of directors not looked up yet (once each; again after 90 days)."""
+        if self.country_progress["running"] or time.time() - self.country_progress["tried"] < 3600:
+            return   # at most one try an hour, so a Wikidata outage doesn't mean a lookup on every page refresh
+        self.country_progress.update(running=True, error="", tried=time.time())
+        try:
+            known = self._cache_get("countries", 90 * 86400) or {}
+            names = [d["name"] for d in self.library()["directors"] if d["name"] not in known]
+            for i in range(0, len(names), 40):
+                chunk = names[i:i + 40]
+                vals = " ".join(f'"{_esc(n)}"@en' for n in chunk)
+                found: dict[str, dict[str, list]] = {}   # name -> person -> countries
+                for r in _q(f'''SELECT ?name ?person ?countryLabel WHERE {{
+  VALUES ?name {{ {vals} }}
+  ?person rdfs:label ?name ; wdt:P31 wd:Q5 ; wdt:P27 ?country .
+  FILTER EXISTS {{ ?f wdt:P57 ?person }}
+  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
+}}'''):
+                    found.setdefault(r.get("name", ""), {}).setdefault(r.get("person", ""), []).append(r.get("countryLabel", ""))
+                for n in chunk:
+                    people = found.get(n, {})
+                    # same-name people: the one with fewest countries listed is no better a guess, so keep the first
+                    cs = next(iter(people.values()), []) if people else []
+                    known[n] = sorted({c for c in cs if c and not re.fullmatch(r"Q\d+", c)})
+                self._cache_put("countries", known)
+                time.sleep(1)
+        except Exception as e:
+            log.info("Director countries: %s", e)
+            self.country_progress["error"] = str(e)[:200]
+        finally:
+            self.country_progress["running"] = False
 
     # ---------------------------------------------------------------- series you own part of
     def series(self, max_age: float = WEEK) -> dict:

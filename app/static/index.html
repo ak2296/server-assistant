@@ -195,7 +195,7 @@
 
 <script>
 let showUnmatched = false;
-let tab = "server", musicFilter = "new", musicYear = "", musicMonth = "", openAdd = null, confirmStop = null;
+let tab = "server", musicFilter = "new", musicYear = "", musicMonth = "", musicKind = "album", openAdd = null, confirmStop = null;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const api = async (p, opt) => { let r; for (let i = 0; ; i++) { try { r = await fetch(p, opt); break; } catch (e) { if (i >= 2 || (opt && opt.method && opt.method !== "GET")) throw e; await new Promise(x => setTimeout(x, 600 * (i + 1))); } } const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.detail || r.statusText); return j; };
@@ -481,7 +481,7 @@ async function renderMusic() {
   const my = seq;
   $("#heading").textContent = "Music";
   $("#actionBtn").hidden = true;
-  const [st, rows, skippedArtists] = await Promise.all([api("/api/status"), api(`/api/releases?status=${musicFilter === "upcoming" ? "new&when=upcoming" : musicFilter}`), api("/api/skipped-artists")]);
+  let [st, rows, skippedArtists] = await Promise.all([api("/api/status"), api(`/api/releases?status=${musicFilter === "upcoming" ? "new&when=upcoming" : musicFilter}`), api("/api/skipped-artists")]);
   const rc = st.release_check;
   let sub = st.library_found ? `${st.artists} artists in your library` : `<span class="warn">No music folder found. Check Settings → Music folders.</span>`;
   if (rc.running) sub += ` · checking ${rc.done}/${rc.total}${rc.current ? " (" + esc(rc.current) + ")" : ""}…`;
@@ -499,6 +499,11 @@ async function renderMusic() {
   const skippedBox = musicFilter === "skipped" && skippedArtists.length
     ? `<h2>Skipped artists</h2><div class="stack"><div class="card"><div class="hint" style="margin-bottom:6px">These artists are not checked for new releases.</div>${skippedArtists.map(a =>
         `<div class="row" style="justify-content:space-between;gap:8px;padding:4px 0"><span>${esc(a)}</span><button class="small" data-a="${esc(a)}" onclick="unskipArtist(this.dataset.a)">Remove</button></div>`).join("")}</div></div><h2>Skipped releases</h2>` : "";
+  // albums and singles (EPs count as singles) in two tabs
+  const isSingle = r => /^(single|ep)$/i.test(r.type || "");
+  const nAlb = rows.filter(r => !isSingle(r)).length, nSng = rows.length - nAlb;
+  const kindBar = `<div class="chips">${[["album", "Albums", nAlb], ["single", "Singles", nSng]].map(([k, l, n]) => `<button class="chip ${musicKind === k ? "on" : ""}" onclick="musicKind='${k}';savePrefs();render()">${l} ${n}</button>`).join("")}</div>`;
+  rows = rows.filter(r => musicKind === "single" ? isSingle(r) : !isSingle(r));
   // year / month filter, from the release dates in this list
   const years = [...new Set(rows.map(r => (r.date || "").slice(0, 4)).filter(y => /^\d{4}$/.test(y)))].sort().reverse();
   if (musicYear && !years.includes(musicYear)) years.unshift(musicYear);
@@ -510,7 +515,7 @@ async function renderMusic() {
       <select onchange="musicYear=this.value;musicMonth='';savePrefs();render()"><option value="">All years</option>${years.map(y => `<option ${y === musicYear ? "selected" : ""}>${y}</option>`).join("")}</select>
       ${musicYear ? `<select onchange="musicMonth=this.value;savePrefs();render()"><option value="">All months</option>${months.map(m => `<option value="${m}" ${m === musicMonth ? "selected" : ""}>${MONTHS[+m - 1] || m}</option>`).join("")}</select>` : ""}
       ${musicYear ? `<span class="muted">${shown.length} of ${rows.length}</span>` : ""}</div>` : "";
-  setView(my, `<div class="chips">${chips}</div>${dateBar}${skippedBox}<div class="stack relgrid">${shown.length ? shown.map(releaseCard).join("") : `<div class="empty">${rows.length ? "Nothing in this month." : empty}</div>`}</div>`);
+  setView(my, `<div class="chips">${chips}</div>${musicFilter === "skipped" ? "" : kindBar}${dateBar}${skippedBox}<div class="stack relgrid">${shown.length ? shown.map(releaseCard).join("") : `<div class="empty">${rows.length ? "Nothing in this month." : empty}</div>`}</div>`);
 }
 
 /* ---------------- DOWNLOADS ---------------- */
@@ -625,7 +630,7 @@ function pager(key, total) {
     <button class="small" type="button" ${p >= n - 1 ? "disabled" : ""} onclick="pages['${key}']=${p + 1};render()">Next ›</button></div>`;
 }
 /* ---------------- MOVIES: directors and series ---------------- */
-let filmDir = "", filmAllDirs = false, filmFilter = "", movieTab = "movies", actTab = "done";
+let filmDir = "", filmAllDirs = false, filmFilter = "", movieTab = "movies", actTab = "done", filmCountry = "";
 const dirCache = {};   // name -> promise of that director's films (looked up once, not on every refresh)
 function filmDirFetch(name, refresh) {
   if (refresh || !dirCache[name]) dirCache[name] = api(`/api/films/director?name=${encodeURIComponent(name)}${refresh ? "&refresh=1" : ""}`).catch(e => ({error: e.message}));
@@ -658,13 +663,19 @@ async function filmsBox() {
   try { d = await api("/api/films/directors"); } catch (e) { return `<h2>Directors</h2><div class="card"><div class="hint">${esc(e.message)}</div></div>`; }
   if (!d.directors.length) return "";
   const q = filmFilter.trim().toLowerCase();
-  const list = d.directors.filter(x => !q || x.name.toLowerCase().includes(q));
-  const shown = q || filmAllDirs ? list : list.slice(0, 12);
+  const cc = {};
+  d.directors.forEach(x => (x.countries || []).forEach(c => cc[c] = (cc[c] || 0) + 1));
+  const countryList = Object.keys(cc).sort((a, b) => cc[b] - cc[a] || a.localeCompare(b));
+  if (filmCountry && !cc[filmCountry]) filmCountry = "";
+  const list = d.directors.filter(x => (!q || x.name.toLowerCase().includes(q)) && (!filmCountry || (x.countries || []).includes(filmCountry)));
+  const countrySel = countryList.length ? `<select onchange="filmCountry=this.value;savePrefs();render()" style="margin-bottom:8px;width:100%"><option value="">All countries</option>${countryList.map(c => `<option value="${esc(c)}" ${c === filmCountry ? "selected" : ""}>${esc(c)} (${cc[c]})</option>`).join("")}</select>`
+    : d.countries_busy ? `<div class="hint" style="margin-bottom:8px">Finding where your directors are from…</div>` : "";
+  const shown = q || filmCountry || filmAllDirs ? list : list.slice(0, 12);
   let h = `<h2>Directors <span class="muted" style="font-weight:400">${d.directors.length}</span></h2><div class="card">`;
   if (filmDir) h += `<div class="chips"><button class="chip on" onclick="filmDir='';render()">${esc(filmDir)} ✕</button></div>`;
-  else h += `<input type="search" id="dirSearch" placeholder="Find a director" value="${esc(filmFilter)}" oninput="filmFilter=this.value;render()" style="margin-bottom:8px">
+  else h += `${countrySel}<input type="search" id="dirSearch" placeholder="Find a director" value="${esc(filmFilter)}" oninput="filmFilter=this.value;render()" style="margin-bottom:8px">
     <div class="chips" style="flex-wrap:wrap">${shown.map(x => `<button class="chip" data-n="${esc(x.name)}" onclick="filmDir=this.dataset.n;render()">${esc(x.name)} <span class="muted">${x.count}</span></button>`).join("")}</div>
-    ${!q && list.length > 12 ? `<a href="#" onclick="filmAllDirs=!filmAllDirs;render();return false">${filmAllDirs ? "Show fewer" : "Show all " + list.length}</a>` : ""}
+    ${!q && !filmCountry && list.length > 12 ? `<a href="#" onclick="filmAllDirs=!filmAllDirs;render();return false">${filmAllDirs ? "Show fewer" : "Show all " + list.length}</a>` : ""}
     ${q && !list.length ? `<div class="hint">No director by that name in your movies.</div>` : ""}`;
   if (filmDir) {
     const r = await filmDirFetch(filmDir);
@@ -1076,8 +1087,8 @@ function selectTab(name) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 const start = location.hash.slice(1);
 /* what you had selected (music filter, carousel tab...) is remembered in this browser, also across app updates */
-function loadPrefs() { try { const p = JSON.parse(localStorage.getItem("sa.ui") || "{}"); if (p.musicFilter) musicFilter = p.musicFilter; if (p.recTab) recTab = p.recTab; if (p.histTab) histTab = p.histTab; if (p.musicYear) musicYear = p.musicYear; if (p.movieTab) movieTab = p.movieTab; if (p.actTab) actTab = p.actTab; if (p.musicMonth) musicMonth = p.musicMonth; } catch (e) {} }
-function savePrefs() { try { localStorage.setItem("sa.ui", JSON.stringify({musicFilter, recTab, histTab, musicYear, musicMonth, movieTab, actTab})); } catch (e) {} }
+function loadPrefs() { try { const p = JSON.parse(localStorage.getItem("sa.ui") || "{}"); if (p.musicFilter) musicFilter = p.musicFilter; if (p.recTab) recTab = p.recTab; if (p.histTab) histTab = p.histTab; if (p.musicYear) musicYear = p.musicYear; if (p.movieTab) movieTab = p.movieTab; if (p.musicKind) musicKind = p.musicKind; if (p.filmCountry) filmCountry = p.filmCountry; if (p.actTab) actTab = p.actTab; if (p.musicMonth) musicMonth = p.musicMonth; } catch (e) {} }
+function savePrefs() { try { localStorage.setItem("sa.ui", JSON.stringify({musicFilter, recTab, histTab, musicYear, musicMonth, movieTab, actTab, musicKind, filmCountry})); } catch (e) {} }
 loadPrefs();
 if (["server", "music", "downloads", "subs", "settings"].includes(start)) selectTab(start);
 render();
